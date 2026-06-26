@@ -1,0 +1,118 @@
+# =========================
+# PYTHON
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# =========================
+# DJANGO
+# =========================
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Media & Static (generated)
+media/
+staticfiles/
+static_root/
+static_root_dev/
+# Django migrations are source code and must be committed for deployment.
+frontend/migrations/
+api/migrations/
+
+# =========================
+# ENVIRONMENT VARIABLES
+# =========================
+.env
+.env.*
+*.env
+
+# =========================
+# IDE / EDITOR
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# LOGS & TEMP FILES
+# =========================
+*.log
+logs/
+tmp/
+temp/
+NOTES.md
+
+# =========================
+# NODE / FRONTEND (if used)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# BUILD / DIST
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# CACHE
+# =========================
+.cache/
+*.cache
+*.pid
+
+# =========================
+# SECURITY (CRITICAL)
+# =========================
+*.pem
+*.key
+*.crt
+*.p12
+
+# =========================
+# DATABASE BACKUPS
+# =========================
+*.sql
+*.dump
+*.bak
+
+# =========================
+# TEST / COVERAGE
+# =========================
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# =========================
+# CELERY / REDIS (OPTIONAL)
+# =========================
+celerybeat-schedule
+celerybeat.pid
+
+# =========================
+# UPLOADS / USER FILES
+# =========================
+uploads/
