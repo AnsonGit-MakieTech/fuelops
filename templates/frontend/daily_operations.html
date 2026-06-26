@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Daily Sales</h2>
+      <p>{{ station.name|default:"Station" }}</p>
+    </div>
+    <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
+  </div>
+
+  {% if operations %}
+    <div class="table-wrapper">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Liters Sold</th>
+            <th>Expected Sales</th>
+            <th>Collected</th>
+            <th>Variance</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for operation in operations %}
+            <tr>
+              <td>{{ operation.operation_date }}</td>
+              <td class="liters">{{ operation.total_liters_sold|floatformat:3 }} L</td>
+              <td class="amount">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
+              <td class="amount">PHP {{ operation.total_collections|floatformat:2 }}</td>
+              <td class="amount">
+                {% if operation.shortage > 0 %}
+                  <span class="text-danger">-PHP {{ operation.shortage|floatformat:2 }}</span>
+                {% elif operation.overage > 0 %}
+                  <span class="text-success">+PHP {{ operation.overage|floatformat:2 }}</span>
+                {% else %}
+                  PHP 0.00
+                {% endif %}
+              </td>
+              <td><span class="badge badge-info">{{ operation.get_status_display }}</span></td>
+              <td><a class="btn-ghost" href="{% url 'daily_operation_detail' operation.pk %}"><i data-lucide="eye"></i> Open</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">No daily sales created yet.</div>
+  {% endif %}
+{% endblock %}

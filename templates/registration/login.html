@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <h1>Sign in</h1>
+    <p>Control fuel, cash, expenses, and profit from one dashboard.</p>
+
+    {% if form.errors %}
+      <div class="message error">Invalid username or password.</div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-field">
+        <label for="{{ form.username.id_for_label }}">Username</label>
+        {{ form.username }}
+      </div>
+      <div class="form-field" style="margin-top: 14px;">
+        <label for="{{ form.password.id_for_label }}">Password</label>
+        {{ form.password }}
+      </div>
+      <button class="btn-accent" type="submit" style="width: 100%; margin-top: 18px;">
+        <i data-lucide="log-in"></i> Sign in
+      </button>
+    </form>
+  </section>
+{% endblock %}

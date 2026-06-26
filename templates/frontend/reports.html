@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Reports</h2>
+      <p>{{ station.name|default:"Station" }} / daily and monthly performance</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <form class="filter-bar" method="get">
+      <div class="form-field">
+        <label for="station">Station</label>
+        <select class="form-control" id="station" name="station">
+          {% for item in stations %}
+            <option value="{{ item.pk }}" {% if station and item.pk == station.pk %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="date">Daily Date</label>
+        <input class="form-control" id="date" type="date" name="date" value="{{ report_date|date:'Y-m-d' }}">
+      </div>
+      <div class="form-field">
+        <label for="month">Monthly Period</label>
+        <input class="form-control" id="month" type="month" name="month" value="{{ month_value }}">
+      </div>
+      <button class="btn-accent" type="submit"><i data-lucide="filter"></i> Apply</button>
+    </form>
+  </section>
+
+  <section class="grid metrics-grid" style="margin-top: 16px;">
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Monthly Liters</div>
+      <div class="dashboard-card-value liters">{{ summary.monthly_liters|floatformat:3 }} L</div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Gross Sales</div>
+      <div class="dashboard-card-value amount">PHP {{ summary.monthly_expected_sales|floatformat:2 }}</div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Gross Profit</div>
+      <div class="dashboard-card-value amount {% if summary.gross_profit < 0 %}text-danger{% else %}text-success{% endif %}">
+        PHP {{ summary.gross_profit|floatformat:2 }}
+      </div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Net Profit</div>
+      <div class="dashboard-card-value amount {% if summary.net_profit < 0 %}text-danger{% else %}text-success{% endif %}">
+        PHP {{ summary.net_profit|floatformat:2 }}
+      </div>
+    </article>
+  </section>
+
+  <section class="grid two-column" style="margin-top: 16px;">
+    <article class="panel">
+      <div class="section-title">
+        <h3>Daily Report</h3>
+        <span class="badge badge-info">{{ report_date }}</span>
+      </div>
+      {% if daily_operations %}
+        <div class="table-wrapper">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Liters</th>
+                <th>Expected</th>
+                <th>Collected</th>
+                <th>Shortage</th>
+                <th>Overage</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for operation in daily_operations %}
+                <tr>
+                  <td><a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a></td>
+                  <td class="liters">{{ operation.total_liters_sold|floatformat:3 }} L</td>
+                  <td class="amount">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
+                  <td class="amount">PHP {{ operation.total_collections|floatformat:2 }}</td>
+                  <td class="amount text-danger">PHP {{ operation.shortage|floatformat:2 }}</td>
+                  <td class="amount text-success">PHP {{ operation.overage|floatformat:2 }}</td>
+                  <td><span class="badge badge-info">{{ operation.get_status_display }}</span></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">No daily sales found for this date.</div>
+      {% endif %}
+    </article>
+
+    <aside class="grid">
+      <article class="panel">
+        <div class="section-title">
+          <h3>Monthly Cash Variance</h3>
+        </div>
+        <div class="grid">
+          <div class="dashboard-card">
+            <div class="dashboard-card-label">Total Shortage</div>
+            <div class="dashboard-card-value amount text-danger">PHP {{ summary.monthly_shortage|floatformat:2 }}</div>
+          </div>
+          <div class="dashboard-card">
+            <div class="dashboard-card-label">Total Overage</div>
+            <div class="dashboard-card-value amount text-success">PHP {{ summary.monthly_overage|floatformat:2 }}</div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="section-title">
+          <h3>Expense Breakdown</h3>
+          <span class="badge badge-warning">PHP {{ summary.monthly_expenses|floatformat:2 }}</span>
+        </div>
+        {% if expense_categories %}
+          <div class="table-wrapper">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for category in expense_categories %}
+                  <tr>
+                    <td>{{ category.category__name }}</td>
+                    <td class="amount">PHP {{ category.total|floatformat:2 }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">No expenses found for this month.</div>
+        {% endif %}
+      </article>
+    </aside>
+  </section>
+{% endblock %}

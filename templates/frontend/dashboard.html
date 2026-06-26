@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>{{ station.name|default:"No station configured" }}</h2>
+      <p>{{ metrics.today|date:"F j, Y" }}</p>
+    </div>
+    <div class="button-row">
+      <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
+      <a class="btn-ghost" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+    </div>
+  </div>
+
+  {% if not station %}
+    <div class="empty-state">Create a station from Django admin, then run the seed command or add tanks and pumps manually.</div>
+  {% else %}
+    <section class="grid metrics-grid">
+      <article class="dashboard-card">
+        <div class="dashboard-card-label">Today's Gross Sales</div>
+        <div class="dashboard-card-value amount">PHP {{ metrics.today_expected_sales|floatformat:2 }}</div>
+        <div class="dashboard-card-foot">Expected from pump readings</div>
+      </article>
+      <article class="dashboard-card">
+        <div class="dashboard-card-label">Today's Liters Sold</div>
+        <div class="dashboard-card-value liters">{{ metrics.today_liters|floatformat:3 }} L</div>
+        <div class="dashboard-card-foot">All active pumps</div>
+      </article>
+      <article class="dashboard-card">
+        <div class="dashboard-card-label">Cash Variance</div>
+        {% if metrics.today_shortage > 0 %}
+          <div class="dashboard-card-value amount text-danger">-PHP {{ metrics.today_shortage|floatformat:2 }}</div>
+          <div class="dashboard-card-foot">Shortage detected</div>
+        {% elif metrics.today_overage > 0 %}
+          <div class="dashboard-card-value amount text-success">+PHP {{ metrics.today_overage|floatformat:2 }}</div>
+          <div class="dashboard-card-foot">Overage detected</div>
+        {% else %}
+          <div class="dashboard-card-value amount">PHP 0.00</div>
+          <div class="dashboard-card-foot">No variance recorded</div>
+        {% endif %}
+      </article>
+      <article class="dashboard-card">
+        <div class="dashboard-card-label">Monthly Net Profit</div>
+        <div class="dashboard-card-value amount {% if metrics.monthly_net_profit < 0 %}text-danger{% else %}text-success{% endif %}">
+          PHP {{ metrics.monthly_net_profit|floatformat:2 }}
+        </div>
+        <div class="dashboard-card-foot">After fuel cost and expenses</div>
+      </article>
+    </section>
+
+    <section class="grid two-column" style="margin-top: 16px;">
+      <div class="grid">
+        <article class="panel">
+          <div class="section-title">
+            <h3>Owner Alerts</h3>
+            <span class="badge badge-warning">{{ alerts|length }} active</span>
+          </div>
+          {% if alerts %}
+            <div class="alert-stack">
+              {% for alert in alerts %}
+                <div class="alert alert-{{ alert.level }}">
+                  <strong>{{ alert.title }}</strong>
+                  <p>{{ alert.message }}</p>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">No critical alerts.</div>
+          {% endif %}
+        </article>
+
+        <article class="panel">
+          <div class="section-title">
+            <h3>Recent Daily Sales</h3>
+            <a class="btn-ghost" href="{% url 'daily_operations' %}"><i data-lucide="arrow-right"></i> View</a>
+          </div>
+          {% if recent_operations %}
+            <div class="table-wrapper">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Expected</th>
+                    <th>Collected</th>
+                    <th>Variance</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for operation in recent_operations %}
+                    <tr>
+                      <td><a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a></td>
+                      <td class="amount">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
+                      <td class="amount">PHP {{ operation.total_collections|floatformat:2 }}</td>
+                      <td class="amount">
+                        {% if operation.shortage > 0 %}
+                          <span class="text-danger">-PHP {{ operation.shortage|floatformat:2 }}</span>
+                        {% elif operation.overage > 0 %}
+                          <span class="text-success">+PHP {{ operation.overage|floatformat:2 }}</span>
+                        {% else %}
+                          PHP 0.00
+                        {% endif %}
+                      </td>
+                      <td><span class="badge badge-info">{{ operation.get_status_display }}</span></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state">No daily sales yet.</div>
+          {% endif %}
+        </article>
+      </div>
+
+      <aside class="grid">
+        <article class="panel">
+          <div class="section-title">
+            <h3>Fuel Inventory</h3>
+            <a class="btn-ghost" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Refill</a>
+          </div>
+          <div class="grid">
+            {% for tank in tanks %}
+              <div class="card">
+                <div class="section-title">
+                  <h3>{{ tank.fuel_product.name }}</h3>
+                  {% if tank.is_low_stock %}
+                    <span class="badge badge-warning">Low Stock</span>
+                  {% else %}
+                    <span class="badge badge-success">Healthy</span>
+                  {% endif %}
+                </div>
+                <div class="dashboard-card-value liters">{{ tank.current_volume_liters|floatformat:3 }} L</div>
+                <div class="dashboard-card-foot">{{ tank.name }} / capacity {{ tank.capacity_liters|floatformat:0 }} L</div>
+              </div>
+            {% empty %}
+              <div class="empty-state">No tanks configured.</div>
+            {% endfor %}
+          </div>
+        </article>
+      </aside>
+    </section>
+  {% endif %}
+{% endblock %}

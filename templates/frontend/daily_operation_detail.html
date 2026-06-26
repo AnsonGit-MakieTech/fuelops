@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>{{ operation.operation_date }} Daily Sale</h2>
+      <p>{{ operation.station.name }} / encoded by {{ operation.encoded_by.get_username }}</p>
+    </div>
+    <div class="button-row">
+      <span class="badge badge-info">{{ operation.get_status_display }}</span>
+      <a class="btn-ghost" href="{% url 'daily_operations' %}"><i data-lucide="arrow-left"></i> Back</a>
+    </div>
+  </div>
+
+  <section class="grid metrics-grid">
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Liters Sold</div>
+      <div class="dashboard-card-value liters">{{ operation.total_liters_sold|floatformat:3 }} L</div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Expected Sales</div>
+      <div class="dashboard-card-value amount">PHP {{ operation.total_expected_sales|floatformat:2 }}</div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Collected</div>
+      <div class="dashboard-card-value amount">PHP {{ operation.total_collections|floatformat:2 }}</div>
+    </article>
+    <article class="dashboard-card">
+      <div class="dashboard-card-label">Variance</div>
+      {% if operation.shortage > 0 %}
+        <div class="dashboard-card-value amount text-danger">-PHP {{ operation.shortage|floatformat:2 }}</div>
+      {% elif operation.overage > 0 %}
+        <div class="dashboard-card-value amount text-success">+PHP {{ operation.overage|floatformat:2 }}</div>
+      {% else %}
+        <div class="dashboard-card-value amount">PHP 0.00</div>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="grid two-column" style="margin-top: 16px;">
+    <div class="grid">
+      <article class="panel">
+        <div class="section-title">
+          <h3>Pump Readings</h3>
+        </div>
+        {% if readings %}
+          <div class="table-wrapper">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Pump</th>
+                  <th>Fuel</th>
+                  <th>Opening</th>
+                  <th>Closing</th>
+                  <th>Liters</th>
+                  <th>Price</th>
+                  <th>Expected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for reading in readings %}
+                  <tr>
+                    <td>{{ reading.pump.name }}</td>
+                    <td>{{ reading.pump.fuel_product.name }}</td>
+                    <td class="meter-reading">{{ reading.opening_reading|floatformat:3 }}</td>
+                    <td class="meter-reading">{{ reading.closing_reading|floatformat:3 }}</td>
+                    <td class="liters">{{ reading.liters_sold|floatformat:3 }} L</td>
+                    <td class="amount">PHP {{ reading.price_per_liter|floatformat:2 }}</td>
+                    <td class="amount">PHP {{ reading.expected_sales|floatformat:2 }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">No pump readings added.</div>
+        {% endif %}
+      </article>
+
+      <article class="panel">
+        <div class="section-title">
+          <h3>Cash Collection</h3>
+        </div>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_collection">
+          <div class="form-grid">
+            {% include "frontend/includes/form_fields.html" with form=collection_form %}
+          </div>
+          <div class="button-row" style="margin-top: 18px;">
+            <button class="btn-primary" type="submit"><i data-lucide="save"></i> Save Collection</button>
+          </div>
+        </form>
+      </article>
+    </div>
+
+    <aside class="grid">
+      <article class="panel">
+        <div class="section-title">
+          <h3>Add Pump Reading</h3>
+        </div>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="add_reading">
+          <div class="form-grid" style="grid-template-columns: 1fr;">
+            {% include "frontend/includes/form_fields.html" with form=reading_form %}
+          </div>
+          <div class="button-row" style="margin-top: 18px;">
+            <button class="btn-accent" type="submit"><i data-lucide="plus"></i> Add Reading</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="panel">
+        <div class="section-title">
+          <h3>Review Action</h3>
+        </div>
+        <div class="button-row">
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="submit">
+            <button class="btn-primary" type="submit"><i data-lucide="send"></i> Submit</button>
+          </form>
+          {% if can_approve %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="approve">
+              <button class="btn-accent" type="submit"><i data-lucide="check"></i> Approve</button>
+            </form>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="reject">
+              <button class="btn-danger" type="submit"><i data-lucide="x"></i> Reject</button>
+            </form>
+          {% endif %}
+        </div>
+      </article>
+    </aside>
+  </section>
+{% endblock %}

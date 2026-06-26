@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Fuel Refill</h2>
+      <p>Supplier deliveries and tank inventory movement.</p>
+    </div>
+    <a class="btn-accent" href="{% url 'fuel_delivery_create' %}"><i data-lucide="plus"></i> Add Refill</a>
+  </div>
+
+  {% if deliveries %}
+    <div class="table-wrapper">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Station</th>
+            <th>Fuel</th>
+            <th>Tank</th>
+            <th>Supplier</th>
+            <th>Liters</th>
+            <th>Cost/L</th>
+            <th>Total Cost</th>
+            <th>Invoice</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for delivery in deliveries %}
+            <tr>
+              <td>{{ delivery.delivery_date }}</td>
+              <td>{{ delivery.station.name }}</td>
+              <td>{{ delivery.fuel_product.name }}</td>
+              <td>{{ delivery.tank.name }}</td>
+              <td>{{ delivery.supplier.name }}</td>
+              <td class="liters">{{ delivery.liters_delivered|floatformat:3 }} L</td>
+              <td class="amount">PHP {{ delivery.cost_per_liter|floatformat:2 }}</td>
+              <td class="amount">PHP {{ delivery.total_cost|floatformat:2 }}</td>
+              <td class="mono">{{ delivery.invoice_number|default:"-" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">No fuel deliveries recorded.</div>
+  {% endif %}
+{% endblock %}

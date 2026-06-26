@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>New Daily Sale</h2>
+      <p>Create the station/date record before adding pump readings.</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-grid">
+        {% include "frontend/includes/form_fields.html" with form=form %}
+      </div>
+      <div class="button-row" style="margin-top: 18px;">
+        <button class="btn-accent" type="submit"><i data-lucide="save"></i> Create</button>
+        <a class="btn-ghost" href="{% url 'daily_operations' %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

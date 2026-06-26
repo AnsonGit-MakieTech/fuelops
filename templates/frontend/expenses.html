@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Expenses</h2>
+      <p>Operating costs for salaries, bills, maintenance, renewals, and supplies.</p>
+    </div>
+    <a class="btn-accent" href="{% url 'expense_create' %}"><i data-lucide="plus"></i> Add Expense</a>
+  </div>
+
+  {% if expenses %}
+    <div class="table-wrapper">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Station</th>
+            <th>Category</th>
+            <th>Amount</th>
+            <th>Vendor</th>
+            <th>Reference</th>
+            <th>Paid By</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for expense in expenses %}
+            <tr>
+              <td>{{ expense.expense_date }}</td>
+              <td>{{ expense.station.name }}</td>
+              <td>{{ expense.category.name }}</td>
+              <td class="amount">PHP {{ expense.amount|floatformat:2 }}</td>
+              <td>{{ expense.vendor|default:"-" }}</td>
+              <td class="mono">{{ expense.reference_number|default:"-" }}</td>
+              <td>{{ expense.paid_by|default:"-" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">No expenses recorded.</div>
+  {% endif %}
+{% endblock %}

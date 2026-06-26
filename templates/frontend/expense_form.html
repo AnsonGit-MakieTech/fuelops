@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Add Expense</h2>
+      <p>Expense records feed monthly profitability reports.</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-grid">
+        {% include "frontend/includes/form_fields.html" with form=form %}
+      </div>
+      <div class="button-row" style="margin-top: 18px;">
+        <button class="btn-accent" type="submit"><i data-lucide="save"></i> Save Expense</button>
+        <a class="btn-ghost" href="{% url 'expenses' %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}
