@@ -26,8 +26,6 @@ staticfiles/
 static_root/
 static_root_dev/
 # Django migrations are source code and must be committed for deployment.
-frontend/migrations/
-api/migrations/
 
 # =========================
 # ENVIRONMENT VARIABLES
@@ -35,6 +33,7 @@ api/migrations/
 .env
 .env.*
 *.env
+!.env.example
 
 # =========================
 # IDE / EDITOR
