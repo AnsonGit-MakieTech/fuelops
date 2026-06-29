@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <div class="auth-status-icon"><i data-lucide="mail-check"></i></div>
+    <h1>Verify your email</h1>
+    <p>A verification link was sent to <strong>{{ email }}</strong>. Open it to activate your station account.</p>
+    <div class="auth-links auth-links-left">
+      <a href="{% url 'resend_verification' %}">Resend verification</a>
+      <a href="{% url 'login' %}">Return to sign in</a>
+    </div>
+  </section>
+{% endblock %}

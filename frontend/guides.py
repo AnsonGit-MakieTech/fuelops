@@ -10,6 +10,7 @@ ROUTE_GUIDES = {
     "expenses": "expenses-list",
     "expense_create": "expense-create",
     "reports": "reports",
+    "station_setup": "station-setup",
 }
 
 VALID_GUIDE_KEYS = frozenset(ROUTE_GUIDES.values())

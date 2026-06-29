@@ -27,3 +27,15 @@ DONE - Add versioned per-user guide progress persistence and API.
 DONE - Build the reusable responsive guided tour interface and replay control.
 DONE - Guide dashboard, daily sales, pump readings, cash collection, review actions, fuel refills, expenses, and reports.
 DONE - Add guided workflow tests and run full verification.
+DONE - Seed the local Main Station, fuel products, tanks, pumps, roles, suppliers, and expense categories for first use.
+DONE - Design secure owner registration, station membership, email verification, onboarding, and team invitations.
+DONE - Add station membership models and backfill existing station owners.
+DONE - Enforce station membership across all views, forms, reports, approvals, and object lookups.
+DONE - Build owner registration with atomic station creation and email verification.
+DONE - Build guided station setup for fuel products, tanks, and pumps.
+DONE - Build password reset and verification resend flows.
+DONE - Build invite-only manager, staff, and accountant registration.
+DONE - Add registration rate limits, audit events, and cross-station security tests.
+DONE - Improve Dashboard and Reports layouts on phone screens.
+DONE - Replace non-field form error blocks with slide notifications.
+DONE - Run registration, invitation, tenancy, mobile markup, notification, migration, and Django verification checks.

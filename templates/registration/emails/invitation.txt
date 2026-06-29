@@ -1,0 +1,6 @@
+You were invited to join {{ invitation.station.name }} on FuelOps as {{ invitation.get_role_display }}.
+
+Accept the invitation within 48 hours:
+{{ accept_url }}
+
+If you did not expect this invitation, ignore this email.

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <div class="auth-status-icon error"><i data-lucide="circle-x"></i></div>
+    <h1>Invitation unavailable</h1>
+    <p>This invitation is expired, revoked, or already accepted. Ask the station owner for a new invitation.</p>
+    <a class="btn-ghost auth-submit" href="{% url 'login' %}">Return to sign in</a>
+  </section>
+{% endblock %}

@@ -128,6 +128,18 @@
         description: "Saving includes this expense in the selected station's monthly profitability calculation.",
       },
     ],
+    "station-setup": [
+      {
+        target: "station-setup-fields",
+        title: "Configure the first fuel line",
+        description: "Enter one product, its prices, tank capacity and stock, pump meter, and supplier. More equipment can be added later.",
+      },
+      {
+        target: "station-setup-submit",
+        title: "Activate daily operations",
+        description: "Complete setup to make pump readings, refills, expenses, and reports available for this station.",
+      },
+    ],
     reports: [
       {
         target: "reports-filters",

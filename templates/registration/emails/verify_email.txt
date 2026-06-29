@@ -1,0 +1,6 @@
+Hello {{ user.get_full_name|default:user.get_username }},
+
+Verify your FuelOps account:
+{{ verification_url }}
+
+If you did not register for FuelOps, ignore this email.

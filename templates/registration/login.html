@@ -8,13 +8,17 @@
     <p>Control fuel, cash, expenses, and profit from one dashboard.</p>
 
     {% if form.errors %}
-      <div class="message error">Invalid username or password.</div>
+      <div class="toast-notification error" role="alert" data-form-error-toast hidden>
+        <div class="toast-icon"><i data-lucide="triangle-alert"></i></div>
+        <div class="toast-content"><strong>Sign in failed</strong><span>Invalid email, username, or password.</span></div>
+        <button class="toast-close" type="button" aria-label="Dismiss notification"><i data-lucide="x"></i></button>
+      </div>
     {% endif %}
 
     <form method="post">
       {% csrf_token %}
       <div class="form-field">
-        <label for="{{ form.username.id_for_label }}">Username</label>
+        <label for="{{ form.username.id_for_label }}">Email or username</label>
         {{ form.username }}
       </div>
       <div class="form-field" style="margin-top: 14px;">
@@ -25,5 +29,9 @@
         <i data-lucide="log-in"></i> Sign in
       </button>
     </form>
+    <div class="auth-links">
+      <a href="{% url 'password_reset' %}">Forgot password?</a>
+      <span>New to FuelOps? <a href="{% url 'register' %}">Create account</a></span>
+    </div>
   </section>
 {% endblock %}

@@ -2,14 +2,21 @@ import json
 from datetime import date
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model, login as auth_login
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
+from django.views.decorators.http import require_http_methods, require_POST
 
 from api.models import (
     CashCollection,
@@ -18,6 +25,8 @@ from api.models import (
     FuelDelivery,
     PumpReading,
     Station,
+    StationInvitation,
+    StationMembership,
     Tank,
 )
 
@@ -26,13 +35,271 @@ from .forms import (
     DailyOperationForm,
     ExpenseForm,
     FuelDeliveryForm,
+    InvitationRegistrationForm,
+    InviteMemberForm,
+    OwnerRegistrationForm,
     PumpReadingForm,
+    StationSetupForm,
+    VerificationResendForm,
+)
+from .access import (
+    can_approve_station,
+    can_manage_station_team,
+    current_station_for_user,
+    stations_for_user,
 )
 from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
 from .models import GuidedTourProgress
+from .security import request_is_rate_limited
+from .services.registration import (
+    accept_invitation_for_user,
+    activate_user,
+    configure_first_station,
+    create_invitation,
+    get_active_invitation,
+    register_invited_user,
+    register_owner,
+    send_invitation_email,
+    send_verification_email,
+)
 
 
 ZERO = Decimal("0")
+
+
+@require_http_methods(["GET", "POST"])
+def owner_register(request):
+    if not settings.REGISTRATION_ENABLED:
+        raise Http404("Registration is not enabled.")
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+
+    if request.method == "POST":
+        if request_is_rate_limited(request, "owner-register", limit=5):
+            messages.error(request, "Too many registration attempts. Please try again later.")
+            form = OwnerRegistrationForm(request.POST)
+        else:
+            form = OwnerRegistrationForm(request.POST)
+            if form.is_valid():
+                user, _ = register_owner(
+                    form.cleaned_data,
+                    require_verification=settings.EMAIL_VERIFICATION_REQUIRED,
+                )
+                if settings.EMAIL_VERIFICATION_REQUIRED:
+                    try:
+                        send_verification_email(request, user, settings.DEFAULT_FROM_EMAIL)
+                    except Exception:
+                        messages.error(
+                            request,
+                            "Your account was created, but the verification email could not be sent. Request a new link below.",
+                        )
+                    return render(
+                        request,
+                        "registration/verification_pending.html",
+                        {"page_title": "Verify Email", "email": user.email},
+                    )
+
+                auth_login(request, user)
+                messages.success(request, "Account created. Configure your first fuel product to finish setup.")
+                return redirect("station_setup")
+    else:
+        form = OwnerRegistrationForm()
+
+    return render(
+        request,
+        "registration/register.html",
+        {"page_title": "Create Account", "form": form},
+    )
+
+
+@require_http_methods(["GET"])
+def verify_email(request, uidb64, token):
+    User = get_user_model()
+    try:
+        user_id = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=user_id)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if not user or not default_token_generator.check_token(user, token):
+        return render(
+            request,
+            "registration/verification_invalid.html",
+            {"page_title": "Invalid Verification Link"},
+            status=400,
+        )
+
+    activate_user(user)
+    auth_login(request, user)
+    messages.success(request, "Email verified. Complete your station setup.")
+    return redirect("station_setup")
+
+
+@require_http_methods(["GET", "POST"])
+def resend_verification(request):
+    if request.method == "POST":
+        form = VerificationResendForm(request.POST)
+        if form.is_valid() and not request_is_rate_limited(request, "verification-resend", limit=4):
+            User = get_user_model()
+            user = User.objects.filter(email__iexact=form.cleaned_data["email"], is_active=False).first()
+            if user:
+                try:
+                    send_verification_email(request, user, settings.DEFAULT_FROM_EMAIL)
+                except Exception:
+                    pass
+            messages.success(request, "If the account is awaiting verification, a new link has been sent.")
+            return redirect("login")
+        if form.is_valid():
+            messages.error(request, "Too many requests. Please try again later.")
+    else:
+        form = VerificationResendForm()
+    return render(
+        request,
+        "registration/resend_verification.html",
+        {"page_title": "Resend Verification", "form": form},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def station_setup(request):
+    station = get_current_station(request.user)
+    if not station:
+        messages.error(request, "No station is assigned to your account.")
+        return redirect("dashboard")
+    if station.pumps.filter(is_active=True).exists():
+        messages.info(request, "This station is already configured.")
+        return redirect("dashboard")
+
+    if request.method == "POST":
+        form = StationSetupForm(request.POST)
+        if form.is_valid():
+            try:
+                configure_first_station(request.user, station, form.cleaned_data)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(request, "Station setup complete. FuelOps is ready for daily operations.")
+                return redirect("dashboard")
+    else:
+        form = StationSetupForm()
+
+    return render(
+        request,
+        "frontend/setup/station.html",
+        {
+            "page_title": "Station Setup",
+            "station": station,
+            "form": form,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def team_members(request):
+    station = get_current_station(request.user)
+    if not station or not can_manage_station_team(request.user, station):
+        raise PermissionDenied
+
+    if request.method == "POST" and request.POST.get("action") == "revoke_invitation":
+        invitation = get_object_or_404(
+            StationInvitation,
+            pk=request.POST.get("invitation_id"),
+            station=station,
+            accepted_at=None,
+            revoked_at=None,
+        )
+        invitation.revoked_at = timezone.now()
+        invitation.save(update_fields=["revoked_at", "updated_at"])
+        messages.success(request, "Invitation revoked.")
+        return redirect("team_members")
+
+    if request.method == "POST":
+        form = InviteMemberForm(request.POST, station=station)
+        if request_is_rate_limited(request, "team-invite", limit=10):
+            messages.error(request, "Too many invitations were requested. Please try again later.")
+        elif form.is_valid():
+            invitation, raw_token = create_invitation(
+                station,
+                request.user,
+                form.cleaned_data["email"],
+                form.cleaned_data["role"],
+            )
+            try:
+                send_invitation_email(request, invitation, raw_token, settings.DEFAULT_FROM_EMAIL)
+            except Exception:
+                messages.error(request, "Invitation saved, but the email could not be sent.")
+            else:
+                messages.success(request, "Team invitation sent.")
+            return redirect("team_members")
+    else:
+        form = InviteMemberForm(station=station)
+
+    return render(
+        request,
+        "frontend/team.html",
+        {
+            "page_title": "Team",
+            "station": station,
+            "form": form,
+            "members": station.memberships.select_related("user", "invited_by").order_by("role", "user__username"),
+            "invitations": station.invitations.filter(
+                accepted_at=None,
+                revoked_at=None,
+                expires_at__gt=timezone.now(),
+            ),
+        },
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def accept_invitation(request, token):
+    invitation = get_active_invitation(token)
+    if not invitation:
+        return render(
+            request,
+            "registration/invitation_invalid.html",
+            {"page_title": "Invalid Invitation"},
+            status=400,
+        )
+
+    User = get_user_model()
+    existing_user = User.objects.filter(email__iexact=invitation.email).first()
+    if existing_user:
+        if not request.user.is_authenticated:
+            messages.info(request, "Sign in with the invited account to accept access.")
+            return redirect(f"{reverse('login')}?next={request.path}")
+        if request.user.pk != existing_user.pk:
+            raise PermissionDenied
+        accept_invitation_for_user(invitation, request.user)
+        messages.success(request, f"You now have access to {invitation.station.name}.")
+        return redirect("dashboard")
+
+    if request.user.is_authenticated:
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = InvitationRegistrationForm(request.POST, email=invitation.email)
+        if request_is_rate_limited(request, "invitation-accept", limit=6):
+            messages.error(request, "Too many attempts. Please try again later.")
+        elif form.is_valid():
+            user = register_invited_user(invitation, form.cleaned_data)
+            auth_login(request, user)
+            messages.success(request, f"Account created. You now have access to {invitation.station.name}.")
+            return redirect("dashboard")
+    else:
+        form = InvitationRegistrationForm(email=invitation.email)
+
+    return render(
+        request,
+        "registration/accept_invitation.html",
+        {
+            "page_title": "Join Station",
+            "invitation": invitation,
+            "form": form,
+        },
+    )
 
 
 @login_required
@@ -68,17 +335,12 @@ def decimal_or_zero(value):
     return value or ZERO
 
 
-def user_can_approve(user):
-    if user.is_superuser:
-        return True
-    return user.groups.filter(name__in=["Owner", "Manager"]).exists()
+def user_can_approve(user, station):
+    return can_approve_station(user, station)
 
 
 def get_current_station(user):
-    owned_station = Station.objects.filter(owner=user, is_active=True).first()
-    if owned_station:
-        return owned_station
-    return Station.objects.filter(is_active=True).first()
+    return current_station_for_user(user)
 
 
 def month_bounds(month_value):
@@ -227,8 +489,9 @@ def daily_operations(request):
 
 @login_required
 def daily_operation_create(request):
+    allowed_stations = stations_for_user(request.user)
     if request.method == "POST":
-        form = DailyOperationForm(request.POST)
+        form = DailyOperationForm(request.POST, stations=allowed_stations)
         if form.is_valid():
             operation = form.save(commit=False)
             operation.encoded_by = request.user
@@ -240,7 +503,7 @@ def daily_operation_create(request):
         station = get_current_station(request.user)
         if station:
             initial["station"] = station
-        form = DailyOperationForm(initial=initial)
+        form = DailyOperationForm(initial=initial, stations=allowed_stations)
 
     return render(
         request,
@@ -255,7 +518,11 @@ def daily_operation_create(request):
 @login_required
 def daily_operation_detail(request, pk):
     operation = get_object_or_404(
-        DailyOperation.objects.select_related("station", "encoded_by", "approved_by"),
+        DailyOperation.objects.filter(station__in=stations_for_user(request.user)).select_related(
+            "station",
+            "encoded_by",
+            "approved_by",
+        ),
         pk=pk,
     )
     reading_form = PumpReadingForm(station=operation.station, daily_operation=operation)
@@ -297,7 +564,7 @@ def daily_operation_detail(request, pk):
             return redirect("daily_operation_detail", pk=operation.pk)
 
         elif action == "approve":
-            if not user_can_approve(request.user):
+            if not user_can_approve(request.user, operation.station):
                 messages.error(request, "Only owners and managers can approve operations.")
                 return redirect("daily_operation_detail", pk=operation.pk)
             try:
@@ -309,7 +576,7 @@ def daily_operation_detail(request, pk):
             return redirect("daily_operation_detail", pk=operation.pk)
 
         elif action == "reject":
-            if not user_can_approve(request.user):
+            if not user_can_approve(request.user, operation.station):
                 messages.error(request, "Only owners and managers can reject operations.")
                 return redirect("daily_operation_detail", pk=operation.pk)
             operation.reject(request.user, request.POST.get("notes", ""))
@@ -328,14 +595,15 @@ def daily_operation_detail(request, pk):
             "reading_form": reading_form,
             "collection_form": collection_form,
             "collection": collection_instance,
-            "can_approve": user_can_approve(request.user),
+            "can_approve": user_can_approve(request.user, operation.station),
         },
     )
 
 
 @login_required
 def fuel_deliveries(request):
-    deliveries = FuelDelivery.objects.select_related(
+    station = get_current_station(request.user)
+    deliveries = FuelDelivery.objects.filter(station__in=stations_for_user(request.user)).select_related(
         "station",
         "fuel_product",
         "tank",
@@ -347,6 +615,7 @@ def fuel_deliveries(request):
         "frontend/fuel_deliveries.html",
         {
             "page_title": "Fuel Refill",
+            "station": station,
             "deliveries": deliveries,
         },
     )
@@ -354,8 +623,9 @@ def fuel_deliveries(request):
 
 @login_required
 def fuel_delivery_create(request):
+    allowed_stations = stations_for_user(request.user)
     if request.method == "POST":
-        form = FuelDeliveryForm(request.POST)
+        form = FuelDeliveryForm(request.POST, stations=allowed_stations)
         if form.is_valid():
             delivery = form.save(commit=False)
             delivery.received_by = request.user
@@ -371,7 +641,7 @@ def fuel_delivery_create(request):
         station = get_current_station(request.user)
         if station:
             initial["station"] = station
-        form = FuelDeliveryForm(initial=initial)
+        form = FuelDeliveryForm(initial=initial, stations=allowed_stations)
 
     return render(
         request,
@@ -385,12 +655,18 @@ def fuel_delivery_create(request):
 
 @login_required
 def expenses(request):
-    items = Expense.objects.select_related("station", "category", "encoded_by").order_by("-expense_date")[:100]
+    station = get_current_station(request.user)
+    items = Expense.objects.filter(station__in=stations_for_user(request.user)).select_related(
+        "station",
+        "category",
+        "encoded_by",
+    ).order_by("-expense_date")[:100]
     return render(
         request,
         "frontend/expenses.html",
         {
             "page_title": "Expenses",
+            "station": station,
             "expenses": items,
         },
     )
@@ -398,8 +674,9 @@ def expenses(request):
 
 @login_required
 def expense_create(request):
+    allowed_stations = stations_for_user(request.user)
     if request.method == "POST":
-        form = ExpenseForm(request.POST)
+        form = ExpenseForm(request.POST, stations=allowed_stations)
         if form.is_valid():
             expense = form.save(commit=False)
             expense.encoded_by = request.user
@@ -411,7 +688,7 @@ def expense_create(request):
         station = get_current_station(request.user)
         if station:
             initial["station"] = station
-        form = ExpenseForm(initial=initial)
+        form = ExpenseForm(initial=initial, stations=allowed_stations)
 
     return render(
         request,
@@ -426,7 +703,7 @@ def expense_create(request):
 @login_required
 def reports(request):
     station = get_current_station(request.user)
-    stations = Station.objects.filter(is_active=True)
+    stations = stations_for_user(request.user)
     selected_station_id = request.GET.get("station")
     if selected_station_id:
         station = stations.filter(pk=selected_station_id).first() or station

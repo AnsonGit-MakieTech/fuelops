@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <div class="auth-status-icon error"><i data-lucide="circle-x"></i></div>
+    <h1>Verification link invalid</h1>
+    <p>The link is expired or has already been used.</p>
+    <a class="btn-accent auth-submit" href="{% url 'resend_verification' %}">Request new link</a>
+  </section>
+{% endblock %}

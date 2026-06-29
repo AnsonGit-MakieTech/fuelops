@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card auth-card-wide">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <h1>Create owner account</h1>
+    <p>Register your account and first station. Inventory setup comes next.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="form-grid">
+        {% include "frontend/includes/form_fields.html" with form=form %}
+      </div>
+      <button class="btn-accent auth-submit" type="submit">
+        <i data-lucide="user-plus"></i> Create account
+      </button>
+    </form>
+    <div class="auth-links">
+      <span>Already registered? <a href="{% url 'login' %}">Sign in</a></span>
+    </div>
+  </section>
+{% endblock %}

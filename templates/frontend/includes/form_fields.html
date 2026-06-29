@@ -1,5 +1,11 @@
 {% if form.non_field_errors %}
-  <div class="message error">{{ form.non_field_errors }}</div>
+  {% for error in form.non_field_errors %}
+    <div class="toast-notification error" role="alert" data-form-error-toast hidden>
+      <div class="toast-icon"><i data-lucide="triangle-alert"></i></div>
+      <div class="toast-content"><strong>Action needed</strong><span>{{ error }}</span></div>
+      <button class="toast-close" type="button" aria-label="Dismiss notification"><i data-lucide="x"></i></button>
+    </div>
+  {% endfor %}
 {% endif %}
 
 {% for field in form %}
@@ -13,7 +19,9 @@
         <div class="form-help">{{ field.help_text }}</div>
       {% endif %}
       {% if field.errors %}
-        <div class="form-help">{{ field.errors }}</div>
+        {% for error in field.errors %}
+          <div class="form-help">{{ error }}</div>
+        {% endfor %}
       {% endif %}
     </div>
   {% endif %}

@@ -12,6 +12,8 @@ from .models import (
     Pump,
     PumpReading,
     Station,
+    StationInvitation,
+    StationMembership,
     Supplier,
     Tank,
 )
@@ -35,6 +37,21 @@ class StationAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "timezone", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name", "address", "owner__username", "owner__email")
+
+
+@admin.register(StationMembership)
+class StationMembershipAdmin(admin.ModelAdmin):
+    list_display = ("station", "user", "role", "status", "joined_at")
+    list_filter = ("station", "role", "status")
+    search_fields = ("station__name", "user__username", "user__email")
+
+
+@admin.register(StationInvitation)
+class StationInvitationAdmin(admin.ModelAdmin):
+    list_display = ("email", "station", "role", "expires_at", "accepted_at", "revoked_at")
+    list_filter = ("station", "role")
+    search_fields = ("email", "station__name")
+    readonly_fields = ("token_hash", "accepted_at", "revoked_at")
 
 
 @admin.register(FuelProduct)

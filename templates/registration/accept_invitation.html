@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block auth_content %}
+  <section class="auth-card">
+    <img class="auth-logo" src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps Station Tracker">
+    <h1>Join {{ invitation.station.name }}</h1>
+    <p>Create the account for <strong>{{ invitation.email }}</strong> with the {{ invitation.get_role_display }} role.</p>
+    <form method="post">
+      {% csrf_token %}
+      {% include "frontend/includes/form_fields.html" with form=form %}
+      <button class="btn-accent auth-submit" type="submit"><i data-lucide="user-check"></i> Create and join</button>
+    </form>
+  </section>
+{% endblock %}

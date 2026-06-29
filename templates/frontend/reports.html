@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="reports-page">
   <div class="page-head">
     <div>
       <h2>Reports</h2>
@@ -9,7 +10,7 @@
   </div>
 
   <section class="panel" data-guide-target="reports-filters">
-    <form class="filter-bar" method="get">
+    <form class="filter-bar reports-filter" method="get">
       <div class="form-field">
         <label for="station">Station</label>
         <select class="form-control" id="station" name="station">
@@ -30,7 +31,7 @@
     </form>
   </section>
 
-  <section class="grid metrics-grid" style="margin-top: 16px;" data-guide-target="reports-summary">
+  <section class="grid metrics-grid report-metrics" style="margin-top: 16px;" data-guide-target="reports-summary">
     <article class="dashboard-card">
       <div class="dashboard-card-label">Monthly Liters</div>
       <div class="dashboard-card-value liters">{{ summary.monthly_liters|floatformat:3 }} L</div>
@@ -61,7 +62,7 @@
       </div>
       {% if daily_operations %}
         <div class="table-wrapper">
-          <table class="table">
+          <table class="table mobile-stack-table">
             <thead>
               <tr>
                 <th>Date</th>
@@ -76,13 +77,13 @@
             <tbody>
               {% for operation in daily_operations %}
                 <tr>
-                  <td><a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a></td>
-                  <td class="liters">{{ operation.total_liters_sold|floatformat:3 }} L</td>
-                  <td class="amount">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
-                  <td class="amount">PHP {{ operation.total_collections|floatformat:2 }}</td>
-                  <td class="amount text-danger">PHP {{ operation.shortage|floatformat:2 }}</td>
-                  <td class="amount text-success">PHP {{ operation.overage|floatformat:2 }}</td>
-                  <td><span class="badge badge-info">{{ operation.get_status_display }}</span></td>
+                  <td data-label="Date"><a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a></td>
+                  <td class="liters" data-label="Liters">{{ operation.total_liters_sold|floatformat:3 }} L</td>
+                  <td class="amount" data-label="Expected">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
+                  <td class="amount" data-label="Collected">PHP {{ operation.total_collections|floatformat:2 }}</td>
+                  <td class="amount text-danger" data-label="Shortage">PHP {{ operation.shortage|floatformat:2 }}</td>
+                  <td class="amount text-success" data-label="Overage">PHP {{ operation.overage|floatformat:2 }}</td>
+                  <td data-label="Status"><span class="badge badge-info">{{ operation.get_status_display }}</span></td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -117,7 +118,7 @@
         </div>
         {% if expense_categories %}
           <div class="table-wrapper">
-            <table class="table">
+            <table class="table compact-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Category</th>
@@ -127,8 +128,8 @@
               <tbody>
                 {% for category in expense_categories %}
                   <tr>
-                    <td>{{ category.category__name }}</td>
-                    <td class="amount">PHP {{ category.total|floatformat:2 }}</td>
+                    <td data-label="Category">{{ category.category__name }}</td>
+                    <td class="amount" data-label="Total">PHP {{ category.total|floatformat:2 }}</td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -140,4 +141,5 @@
       </article>
     </aside>
   </section>
+</div>
 {% endblock %}

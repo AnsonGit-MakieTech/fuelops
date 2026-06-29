@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Team Access</h2>
+      <p>{{ station.name }} / invite managers, staff, and accountants</p>
+    </div>
+  </div>
+
+  <section class="grid two-column">
+    <article class="panel">
+      <div class="section-title"><h3>Members</h3><span class="badge badge-info">{{ members|length }}</span></div>
+      <div class="table-wrapper">
+        <table class="table compact-table mobile-stack-table">
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Joined</th></tr></thead>
+          <tbody>
+            {% for membership in members %}
+              <tr>
+                <td data-label="User">{{ membership.user.get_full_name|default:membership.user.get_username }}<br><span class="table-secondary">{{ membership.user.email }}</span></td>
+                <td data-label="Role"><span class="badge badge-info">{{ membership.get_role_display }}</span></td>
+                <td data-label="Status">{{ membership.get_status_display }}</td>
+                <td data-label="Joined">{{ membership.joined_at|date:"M j, Y" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <aside class="grid">
+      <article class="panel">
+        <div class="section-title"><h3>Invite Member</h3></div>
+        <form method="post">
+          {% csrf_token %}
+          {% include "frontend/includes/form_fields.html" with form=form %}
+          <button class="btn-accent" type="submit" style="margin-top: 16px;"><i data-lucide="send"></i> Send Invitation</button>
+        </form>
+      </article>
+
+      <article class="panel">
+        <div class="section-title"><h3>Pending Invitations</h3></div>
+        {% for invitation in invitations %}
+          <div class="pending-invitation">
+            <div><strong>{{ invitation.email }}</strong><span>{{ invitation.get_role_display }} / expires {{ invitation.expires_at|date:"M j, g:i A" }}</span></div>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="revoke_invitation">
+              <input type="hidden" name="invitation_id" value="{{ invitation.pk }}">
+              <button class="btn-icon" type="submit" aria-label="Revoke invitation" title="Revoke invitation"><i data-lucide="x"></i></button>
+            </form>
+          </div>
+        {% empty %}
+          <div class="empty-state">No pending invitations.</div>
+        {% endfor %}
+      </article>
+    </aside>
+  </section>
+{% endblock %}

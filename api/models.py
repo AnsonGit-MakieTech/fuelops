@@ -55,6 +55,103 @@ class Station(TimeStampedModel):
         return self.name
 
 
+class StationMembership(TimeStampedModel):
+    class Role(models.TextChoices):
+        OWNER = "owner", "Owner"
+        MANAGER = "manager", "Manager"
+        STAFF = "staff", "Staff"
+        ACCOUNTANT = "accountant", "Accountant"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        SUSPENDED = "suspended", "Suspended"
+        REVOKED = "revoked", "Revoked"
+
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="station_memberships",
+    )
+    role = models.CharField(max_length=20, choices=Role.choices)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="created_station_memberships",
+        null=True,
+        blank=True,
+    )
+    joined_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["station__name", "role", "user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["station", "user"],
+                name="unique_station_membership",
+            )
+        ]
+
+    @property
+    def can_approve(self):
+        return self.status == self.Status.ACTIVE and self.role in {
+            self.Role.OWNER,
+            self.Role.MANAGER,
+        }
+
+    def __str__(self):
+        return f"{self.station} - {self.user} ({self.get_role_display()})"
+
+
+class StationInvitation(TimeStampedModel):
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+    )
+    email = models.EmailField()
+    role = models.CharField(
+        max_length=20,
+        choices=[
+            (StationMembership.Role.MANAGER, "Manager"),
+            (StationMembership.Role.STAFF, "Staff"),
+            (StationMembership.Role.ACCOUNTANT, "Accountant"),
+        ],
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="station_invitations",
+    )
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def is_active(self):
+        return (
+            self.accepted_at is None
+            and self.revoked_at is None
+            and self.expires_at > timezone.now()
+        )
+
+    def __str__(self):
+        return f"{self.station} - {self.email} ({self.get_role_display()})"
+
+
 class FuelProduct(TimeStampedModel):
     station = models.ForeignKey(
         Station,
