@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Suppliers</h2>
+      <p>{{ station.name }} / station-owned supplier directory</p>
+    </div>
+    <div class="button-row">
+      <a class="btn-ghost" href="{% url 'station_settings' %}"><i data-lucide="arrow-left"></i> Station</a>
+      <a class="btn-accent" href="{% url 'supplier_create' %}"><i data-lucide="plus"></i> Add Supplier</a>
+    </div>
+  </div>
+
+  {% if suppliers %}
+    <div class="table-wrapper">
+      <table class="table mobile-stack-table">
+        <thead><tr><th>Supplier</th><th>Contact</th><th>Phone</th><th>Email</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for supplier in suppliers %}
+            <tr>
+              <td data-label="Supplier"><strong>{{ supplier.name }}</strong></td>
+              <td data-label="Contact">{{ supplier.contact_person|default:"-" }}</td>
+              <td data-label="Phone">{{ supplier.phone|default:"-" }}</td>
+              <td data-label="Email">{{ supplier.email|default:"-" }}</td>
+              <td data-label="Status"><span class="badge {% if supplier.is_active %}badge-success{% else %}badge-warning{% endif %}">{% if supplier.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+              <td data-label="Action"><a class="btn-icon" href="{% url 'supplier_edit' supplier.pk %}" aria-label="Edit {{ supplier.name }}" title="Edit supplier"><i data-lucide="pencil"></i></a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">No suppliers configured.</div>
+  {% endif %}
+{% endblock %}

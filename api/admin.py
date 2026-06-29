@@ -94,9 +94,9 @@ class PumpAdmin(admin.ModelAdmin):
 
 @admin.register(Supplier)
 class SupplierAdmin(admin.ModelAdmin):
-    list_display = ("name", "contact_person", "phone", "email", "is_active")
-    list_filter = ("is_active",)
-    search_fields = ("name", "contact_person", "phone", "email")
+    list_display = ("name", "station", "contact_person", "phone", "email", "is_active")
+    list_filter = ("station", "is_active")
+    search_fields = ("name", "station__name", "contact_person", "phone", "email")
 
 
 @admin.register(DailyOperation)

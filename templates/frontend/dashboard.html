@@ -8,8 +8,12 @@
       <p>{{ metrics.today|date:"F j, Y" }}</p>
     </div>
     <div class="button-row dashboard-quick-actions" data-guide-target="dashboard-actions">
-      <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
-      <a class="btn-ghost" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+      {% if station_permissions.encode_operations %}
+        <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
+      {% endif %}
+      {% if station_permissions.view_reports %}
+        <a class="btn-ghost" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+      {% endif %}
     </div>
   </div>
 
@@ -41,15 +45,21 @@
         {% endif %}
       </article>
       <article class="dashboard-card">
-        <div class="dashboard-card-label">Monthly Net Profit</div>
-        <div class="dashboard-card-value amount {% if metrics.monthly_net_profit < 0 %}text-danger{% else %}text-success{% endif %}">
-          PHP {{ metrics.monthly_net_profit|floatformat:2 }}
-        </div>
-        <div class="dashboard-card-foot">After fuel cost and expenses</div>
+        {% if can_view_reports %}
+          <div class="dashboard-card-label">Monthly Net Profit</div>
+          <div class="dashboard-card-value amount {% if metrics.monthly_net_profit < 0 %}text-danger{% else %}text-success{% endif %}">
+            PHP {{ metrics.monthly_net_profit|floatformat:2 }}
+          </div>
+          <div class="dashboard-card-foot">After fuel cost and expenses</div>
+        {% else %}
+          <div class="dashboard-card-label">Today's Collections</div>
+          <div class="dashboard-card-value amount">PHP {{ metrics.today_collected|floatformat:2 }}</div>
+          <div class="dashboard-card-foot">Cash and non-cash payments</div>
+        {% endif %}
       </article>
     </section>
 
-    <section class="grid two-column" style="margin-top: 16px;">
+    <section class="grid two-column {% if not station_permissions.view_inventory %}single-column{% endif %}" style="margin-top: 16px;">
       <div class="grid">
         <article class="panel" data-guide-target="dashboard-alerts">
           <div class="section-title">
@@ -73,7 +83,11 @@
         <article class="panel" data-guide-target="dashboard-recent-sales">
           <div class="section-title">
             <h3>Recent Daily Sales</h3>
-            <a class="btn-ghost" href="{% url 'daily_operations' %}"><i data-lucide="arrow-right"></i> View</a>
+            {% if station_permissions.encode_operations %}
+              <a class="btn-ghost" href="{% url 'daily_operations' %}"><i data-lucide="arrow-right"></i> View</a>
+            {% elif station_permissions.view_reports %}
+              <a class="btn-ghost" href="{% url 'reports' %}"><i data-lucide="arrow-right"></i> Reports</a>
+            {% endif %}
           </div>
           {% if recent_operations %}
             <div class="table-wrapper">
@@ -90,7 +104,7 @@
                 <tbody>
                   {% for operation in recent_operations %}
                     <tr>
-                      <td data-label="Date"><a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a></td>
+                      <td data-label="Date">{% if station_permissions.encode_operations %}<a href="{% url 'daily_operation_detail' operation.pk %}">{{ operation.operation_date }}</a>{% else %}{{ operation.operation_date }}{% endif %}</td>
                       <td class="amount" data-label="Expected">PHP {{ operation.total_expected_sales|floatformat:2 }}</td>
                       <td class="amount" data-label="Collected">PHP {{ operation.total_collections|floatformat:2 }}</td>
                       <td class="amount" data-label="Variance">
@@ -114,11 +128,15 @@
         </article>
       </div>
 
-      <aside class="grid">
+      {% if station_permissions.view_inventory %}<aside class="grid">
         <article class="panel" data-guide-target="dashboard-inventory">
           <div class="section-title">
             <h3>Fuel Inventory</h3>
-            <a class="btn-ghost" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Refill</a>
+            {% if station_permissions.manage_deliveries %}
+              <a class="btn-ghost" href="{% url 'fuel_delivery_create' %}"><i data-lucide="truck"></i> Refill</a>
+            {% else %}
+              <a class="btn-ghost" href="{% url 'inventory' %}"><i data-lucide="database"></i> View</a>
+            {% endif %}
           </div>
           <div class="grid">
             {% for tank in tanks %}
@@ -139,7 +157,7 @@
             {% endfor %}
           </div>
         </article>
-      </aside>
+      </aside>{% endif %}
     </section>
   {% endif %}
 </div>

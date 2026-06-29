@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>{{ station.name }}</h2>
+      <p>Station details, fuel products, tanks, pumps, and suppliers</p>
+    </div>
+    <div class="button-row">
+      <a class="btn-ghost" href="{% url 'suppliers' %}"><i data-lucide="building-2"></i> Suppliers</a>
+      <a class="btn-accent" href="{% url 'station_edit' %}"><i data-lucide="pencil"></i> Edit Station</a>
+    </div>
+  </div>
+
+  <section class="panel settings-summary">
+    <div><span>Address</span><strong>{{ station.address|default:"Not set" }}</strong></div>
+    <div><span>Timezone</span><strong>{{ station.timezone }}</strong></div>
+    <div><span>Status</span><strong>{% if station.is_active %}Active{% else %}Inactive{% endif %}</strong></div>
+  </section>
+
+  <section class="panel settings-section" data-guide-target="settings-products">
+    <div class="section-title">
+      <div><h3>Fuel Products</h3><p class="section-subtitle">Selling price and cost basis for each grade</p></div>
+      <a class="btn-accent" href="{% url 'fuel_product_create' %}"><i data-lucide="plus"></i> Add Product</a>
+    </div>
+    {% if products %}
+      <div class="table-wrapper">
+        <table class="table compact-table mobile-stack-table">
+          <thead><tr><th>Product</th><th>Code</th><th>Selling Price</th><th>Cost</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for product in products %}
+              <tr>
+                <td data-label="Product"><strong>{{ product.name }}</strong></td>
+                <td class="mono" data-label="Code">{{ product.code }}</td>
+                <td class="amount" data-label="Selling">PHP {{ product.current_price_per_liter|floatformat:2 }}</td>
+                <td class="amount" data-label="Cost">PHP {{ product.cost_per_liter|floatformat:2 }}</td>
+                <td data-label="Status"><span class="badge {% if product.is_active %}badge-success{% else %}badge-warning{% endif %}">{% if product.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+                <td data-label="Action"><a class="btn-icon" href="{% url 'fuel_product_edit' product.pk %}" aria-label="Edit {{ product.name }}" title="Edit product"><i data-lucide="pencil"></i></a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No fuel products configured.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel settings-section" data-guide-target="settings-tanks">
+    <div class="section-title">
+      <div><h3>Tanks</h3><p class="section-subtitle">Capacity, current stock, and reorder controls</p></div>
+      <a class="btn-accent" href="{% url 'tank_create' %}"><i data-lucide="plus"></i> Add Tank</a>
+    </div>
+    {% if tanks %}
+      <div class="table-wrapper">
+        <table class="table compact-table mobile-stack-table">
+          <thead><tr><th>Tank</th><th>Product</th><th>Current</th><th>Capacity</th><th>Reorder</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for tank in tanks %}
+              <tr>
+                <td data-label="Tank"><strong>{{ tank.name }}</strong></td>
+                <td data-label="Product">{{ tank.fuel_product.name }}</td>
+                <td class="liters" data-label="Current">{{ tank.current_volume_liters|floatformat:3 }} L</td>
+                <td class="liters" data-label="Capacity">{{ tank.capacity_liters|floatformat:3 }} L</td>
+                <td class="liters" data-label="Reorder">{{ tank.reorder_level_liters|floatformat:3 }} L</td>
+                <td data-label="Action"><a class="btn-icon" href="{% url 'tank_edit' tank.pk %}" aria-label="Edit {{ tank.name }}" title="Edit tank"><i data-lucide="pencil"></i></a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No tanks configured.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel settings-section" data-guide-target="settings-pumps">
+    <div class="section-title">
+      <div><h3>Pumps</h3><p class="section-subtitle">Pump-to-tank and meter assignments</p></div>
+      <a class="btn-accent" href="{% url 'pump_create' %}"><i data-lucide="plus"></i> Add Pump</a>
+    </div>
+    {% if pumps %}
+      <div class="table-wrapper">
+        <table class="table compact-table mobile-stack-table">
+          <thead><tr><th>Pump</th><th>Meter</th><th>Product</th><th>Tank</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for pump in pumps %}
+              <tr>
+                <td data-label="Pump"><strong>{{ pump.name }}</strong></td>
+                <td class="mono" data-label="Meter">{{ pump.meter_number }}</td>
+                <td data-label="Product">{{ pump.fuel_product.name }}</td>
+                <td data-label="Tank">{{ pump.tank.name }}</td>
+                <td data-label="Status"><span class="badge {% if pump.is_active %}badge-success{% else %}badge-warning{% endif %}">{% if pump.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+                <td data-label="Action"><a class="btn-icon" href="{% url 'pump_edit' pump.pk %}" aria-label="Edit {{ pump.name }}" title="Edit pump"><i data-lucide="pencil"></i></a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No pumps configured.</div>
+    {% endif %}
+  </section>
+{% endblock %}

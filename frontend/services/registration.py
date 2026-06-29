@@ -138,7 +138,10 @@ def configure_first_station(user, station, cleaned_data):
     pump.full_clean()
     pump.save()
 
-    Supplier.objects.get_or_create(name=cleaned_data["supplier_name"].strip())
+    Supplier.objects.get_or_create(
+        station=station,
+        name=cleaned_data["supplier_name"].strip(),
+    )
     profile, _ = UserProfile.objects.get_or_create(user=user)
     profile.onboarding_completed_at = timezone.now()
     profile.save(update_fields=["onboarding_completed_at", "updated_at"])

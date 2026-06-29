@@ -99,7 +99,7 @@ class FuelOpsCalculationTests(TestCase):
         self.assertEqual(collection.overage, Decimal("0.00"))
 
     def test_fuel_delivery_increases_tank_inventory_and_update_applies_delta(self):
-        supplier = Supplier.objects.create(name="Test Supplier")
+        supplier = Supplier.objects.create(station=self.station, name="Test Supplier")
         delivery = FuelDelivery.objects.create(
             station=self.station,
             fuel_product=self.product,

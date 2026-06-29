@@ -66,7 +66,10 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"station - {station.name}")
 
-        supplier, _ = Supplier.objects.get_or_create(name="Default Fuel Supplier")
+        supplier, _ = Supplier.objects.get_or_create(
+            station=station,
+            name="Default Fuel Supplier",
+        )
         self.stdout.write(f"supplier - {supplier.name}")
 
         product_defaults = [

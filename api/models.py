@@ -301,7 +301,12 @@ class Pump(TimeStampedModel):
 
 
 class Supplier(TimeStampedModel):
-    name = models.CharField(max_length=150, unique=True)
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="suppliers",
+    )
+    name = models.CharField(max_length=150)
     contact_person = models.CharField(max_length=120, blank=True)
     phone = models.CharField(max_length=50, blank=True)
     email = models.EmailField(blank=True)
@@ -309,10 +314,16 @@ class Supplier(TimeStampedModel):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["station__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["station", "name"],
+                name="unique_supplier_name_per_station",
+            )
+        ]
 
     def __str__(self):
-        return self.name
+        return f"{self.station} - {self.name}"
 
 
 class DailyOperation(TimeStampedModel):
@@ -654,6 +665,10 @@ class FuelDelivery(TimeStampedModel):
         if self.tank_id and self.fuel_product_id:
             if self.tank.fuel_product_id != self.fuel_product_id:
                 errors["tank"] = "Tank fuel product must match delivery fuel product."
+
+        if self.supplier_id and self.station_id:
+            if self.supplier.station_id != self.station_id:
+                errors["supplier"] = "Supplier must belong to the same station."
 
         if not errors:
             self.calculate()

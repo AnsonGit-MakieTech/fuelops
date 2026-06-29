@@ -140,6 +140,52 @@
         description: "Complete setup to make pump readings, refills, expenses, and reports available for this station.",
       },
     ],
+    "station-settings": [
+      {
+        target: "settings-products",
+        title: "Manage fuel products",
+        description: "Add every fuel grade sold by the station and maintain its current selling price and cost basis.",
+      },
+      {
+        target: "settings-tanks",
+        title: "Configure storage tanks",
+        description: "Connect each tank to a product and maintain capacity, current stock, and reorder level.",
+      },
+      {
+        target: "settings-pumps",
+        title: "Connect pumps and meters",
+        description: "Assign each pump to the matching product and tank before recording daily readings.",
+      },
+    ],
+    inventory: [
+      {
+        target: "inventory-tanks",
+        title: "Monitor tank balances",
+        description: "Review current volume, capacity, reorder level, and low-stock status for every fuel product.",
+      },
+      {
+        target: "inventory-adjustments",
+        title: "Control stock corrections",
+        description: "Adjustment requests remain pending until an owner or manager approves the inventory change.",
+      },
+      {
+        target: "inventory-deliveries",
+        title: "Review incoming fuel",
+        description: "Recent supplier deliveries show the product, tank, delivered liters, and acquisition cost.",
+      },
+    ],
+    "inventory-adjustment": [
+      {
+        target: "adjustment-fields",
+        title: "Describe the stock change",
+        description: "Choose a tank, adjustment type, liters, and a specific operational reason for the request.",
+      },
+      {
+        target: "adjustment-submit",
+        title: "Submit for approval",
+        description: "Submitting records the request without changing inventory until an authorized reviewer approves it.",
+      },
+    ],
     reports: [
       {
         target: "reports-filters",

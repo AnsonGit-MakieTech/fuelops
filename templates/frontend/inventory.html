@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Fuel Inventory</h2>
+      <p>{{ station.name }} / tank balances and inventory movement</p>
+    </div>
+    <div class="button-row">
+      {% if can_add_delivery %}
+        <a class="btn-ghost" href="{% url 'fuel_delivery_create' %}"><i data-lucide="truck"></i> Add Refill</a>
+      {% endif %}
+      {% if can_create_adjustments %}
+        <a class="btn-accent" href="{% url 'inventory_adjustment_create' %}"><i data-lucide="sliders-horizontal"></i> New Adjustment</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <section class="grid inventory-grid" data-guide-target="inventory-tanks">
+    {% for tank in tanks %}
+      <article class="dashboard-card inventory-card">
+        <div class="section-title">
+          <div><h3>{{ tank.name }}</h3><span class="table-secondary">{{ tank.fuel_product.name }}</span></div>
+          <span class="badge {% if tank.is_low_stock %}badge-warning{% else %}badge-success{% endif %}">{% if tank.is_low_stock %}Low Stock{% else %}Healthy{% endif %}</span>
+        </div>
+        <div class="dashboard-card-value liters">{{ tank.current_volume_liters|floatformat:3 }} L</div>
+        <div class="inventory-meta"><span>Capacity {{ tank.capacity_liters|floatformat:3 }} L</span><span>Reorder {{ tank.reorder_level_liters|floatformat:3 }} L</span></div>
+      </article>
+    {% empty %}
+      <div class="empty-state">No tanks configured.</div>
+    {% endfor %}
+  </section>
+
+  <section class="panel settings-section" data-guide-target="inventory-adjustments">
+    <div class="section-title"><h3>Inventory Adjustments</h3></div>
+    {% if adjustments %}
+      <div class="table-wrapper">
+        <table class="table mobile-stack-table">
+          <thead><tr><th>Date</th><th>Tank</th><th>Type</th><th>Liters</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for adjustment in adjustments %}
+              <tr>
+                <td data-label="Date">{{ adjustment.adjustment_date }}</td>
+                <td data-label="Tank">{{ adjustment.tank.name }}</td>
+                <td data-label="Type">{{ adjustment.get_adjustment_type_display }}</td>
+                <td class="liters" data-label="Liters">{{ adjustment.liters|floatformat:3 }} L</td>
+                <td data-label="Reason">{{ adjustment.reason }}</td>
+                <td data-label="Status"><span class="badge {% if adjustment.applied_at %}badge-success{% else %}badge-warning{% endif %}">{% if adjustment.applied_at %}Applied{% else %}Pending{% endif %}</span></td>
+                <td data-label="Action">
+                  {% if can_approve_adjustments and not adjustment.applied_at %}
+                    <form method="post" action="{% url 'inventory_adjustment_approve' adjustment.pk %}">
+                      {% csrf_token %}
+                      <button
+                        class="btn-accent"
+                        type="submit"
+                        data-confirm-title="Apply inventory adjustment?"
+                        data-confirm-message="This changes the selected tank balance and cannot be applied twice."
+                        data-confirm-label="Approve"
+                        data-confirm-variant="btn-accent"
+                      ><i data-lucide="check"></i> Approve</button>
+                    </form>
+                  {% else %}
+                    <span class="table-secondary">{{ adjustment.approved_by.get_username|default:"Awaiting approval" }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No inventory adjustments recorded.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel settings-section" data-guide-target="inventory-deliveries">
+    <div class="section-title"><h3>Recent Fuel Deliveries</h3><a class="btn-ghost" href="{% url 'fuel_deliveries' %}"><i data-lucide="arrow-right"></i> View All</a></div>
+    {% if deliveries %}
+      <div class="table-wrapper">
+        <table class="table mobile-stack-table">
+          <thead><tr><th>Date</th><th>Product</th><th>Tank</th><th>Supplier</th><th>Liters</th><th>Total Cost</th></tr></thead>
+          <tbody>
+            {% for delivery in deliveries %}
+              <tr>
+                <td data-label="Date">{{ delivery.delivery_date }}</td>
+                <td data-label="Product">{{ delivery.fuel_product.name }}</td>
+                <td data-label="Tank">{{ delivery.tank.name }}</td>
+                <td data-label="Supplier">{{ delivery.supplier.name }}</td>
+                <td class="liters" data-label="Liters">{{ delivery.liters_delivered|floatformat:3 }} L</td>
+                <td class="amount" data-label="Cost">PHP {{ delivery.total_cost|floatformat:2 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">No fuel deliveries recorded.</div>
+    {% endif %}
+  </section>
+{% endblock %}

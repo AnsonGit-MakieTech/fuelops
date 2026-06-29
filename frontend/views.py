@@ -19,14 +19,19 @@ from django.utils.http import urlsafe_base64_decode
 from django.views.decorators.http import require_http_methods, require_POST
 
 from api.models import (
+    AuditLog,
     CashCollection,
     DailyOperation,
     Expense,
     FuelDelivery,
+    FuelProduct,
+    InventoryAdjustment,
+    Pump,
     PumpReading,
     Station,
     StationInvitation,
     StationMembership,
+    Supplier,
     Tank,
 )
 
@@ -35,18 +40,35 @@ from .forms import (
     DailyOperationForm,
     ExpenseForm,
     FuelDeliveryForm,
+    FuelProductForm,
+    InventoryAdjustmentForm,
     InvitationRegistrationForm,
     InviteMemberForm,
     OwnerRegistrationForm,
+    PumpForm,
     PumpReadingForm,
+    StationForm,
     StationSetupForm,
+    SupplierForm,
+    TankForm,
     VerificationResendForm,
 )
 from .access import (
+    APPROVE_ADJUSTMENTS,
+    CREATE_ADJUSTMENTS,
+    ENCODE_OPERATIONS,
+    MANAGE_CATALOG,
+    MANAGE_DELIVERIES,
+    MANAGE_EXPENSES,
+    MANAGE_TEAM,
+    VIEW_INVENTORY,
+    VIEW_REPORTS,
     can_approve_station,
-    can_manage_station_team,
     current_station_for_user,
+    require_station_permission,
     stations_for_user,
+    stations_for_user_with_permission,
+    user_has_station_permission,
 )
 from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
 from .models import GuidedTourProgress
@@ -167,6 +189,7 @@ def station_setup(request):
     if not station:
         messages.error(request, "No station is assigned to your account.")
         return redirect("dashboard")
+    require_station_permission(request.user, station, MANAGE_CATALOG)
     if station.pumps.filter(is_active=True).exists():
         messages.info(request, "This station is already configured.")
         return redirect("dashboard")
@@ -199,8 +222,9 @@ def station_setup(request):
 @require_http_methods(["GET", "POST"])
 def team_members(request):
     station = get_current_station(request.user)
-    if not station or not can_manage_station_team(request.user, station):
+    if not station:
         raise PermissionDenied
+    require_station_permission(request.user, station, MANAGE_TEAM)
 
     if request.method == "POST" and request.POST.get("action") == "revoke_invitation":
         invitation = get_object_or_404(
@@ -407,6 +431,314 @@ def dashboard_metrics(station):
     }
 
 
+def permitted_current_station(request, permission):
+    station = get_current_station(request.user)
+    if not station:
+        raise PermissionDenied
+    require_station_permission(request.user, station, permission)
+    return station
+
+
+@login_required
+def station_settings(request):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    return render(
+        request,
+        "frontend/settings/station.html",
+        {
+            "page_title": "Station Settings",
+            "station": station,
+            "products": station.fuel_products.all(),
+            "tanks": station.tanks.select_related("fuel_product").all(),
+            "pumps": station.pumps.select_related("fuel_product", "tank").all(),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def station_edit(request):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    form = StationForm(request.POST or None, instance=station)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Station details updated.")
+        return redirect("station_settings")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Station",
+            "station": station,
+            "form": form,
+            "entity_label": "Station",
+            "submit_label": "Save Station",
+            "cancel_url": reverse("station_settings"),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def fuel_product_edit(request, pk=None):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    product = (
+        get_object_or_404(FuelProduct, pk=pk, station=station)
+        if pk is not None
+        else FuelProduct(station=station)
+    )
+    form = FuelProductForm(request.POST or None, instance=product, station=station)
+    form.instance.station = station
+    if request.method == "POST" and form.is_valid():
+        product = form.save(commit=False)
+        product.station = station
+        product.full_clean()
+        product.save()
+        messages.success(request, "Fuel product saved.")
+        return redirect("station_settings")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Fuel Product" if pk else "Add Fuel Product",
+            "station": station,
+            "form": form,
+            "entity_label": "Fuel Product",
+            "submit_label": "Save Product",
+            "cancel_url": reverse("station_settings"),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def tank_edit(request, pk=None):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    tank = (
+        get_object_or_404(Tank, pk=pk, station=station)
+        if pk is not None
+        else Tank(station=station)
+    )
+    form = TankForm(request.POST or None, instance=tank, station=station)
+    form.instance.station = station
+    if request.method == "POST" and form.is_valid():
+        tank = form.save(commit=False)
+        tank.station = station
+        tank.full_clean()
+        tank.save()
+        messages.success(request, "Tank saved.")
+        return redirect("station_settings")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Tank" if pk else "Add Tank",
+            "station": station,
+            "form": form,
+            "entity_label": "Tank",
+            "submit_label": "Save Tank",
+            "cancel_url": reverse("station_settings"),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def pump_edit(request, pk=None):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    pump = (
+        get_object_or_404(Pump, pk=pk, station=station)
+        if pk is not None
+        else Pump(station=station)
+    )
+    form = PumpForm(request.POST or None, instance=pump, station=station)
+    form.instance.station = station
+    if request.method == "POST" and form.is_valid():
+        pump = form.save(commit=False)
+        pump.station = station
+        pump.full_clean()
+        pump.save()
+        messages.success(request, "Pump saved.")
+        return redirect("station_settings")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Pump" if pk else "Add Pump",
+            "station": station,
+            "form": form,
+            "entity_label": "Pump",
+            "submit_label": "Save Pump",
+            "cancel_url": reverse("station_settings"),
+        },
+    )
+
+
+@login_required
+def suppliers(request):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    return render(
+        request,
+        "frontend/settings/suppliers.html",
+        {
+            "page_title": "Suppliers",
+            "station": station,
+            "suppliers": station.suppliers.all(),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def supplier_edit(request, pk=None):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    supplier = (
+        get_object_or_404(Supplier, pk=pk, station=station)
+        if pk is not None
+        else Supplier(station=station)
+    )
+    form = SupplierForm(request.POST or None, instance=supplier, station=station)
+    form.instance.station = station
+    if request.method == "POST" and form.is_valid():
+        supplier = form.save(commit=False)
+        supplier.station = station
+        supplier.full_clean()
+        supplier.save()
+        messages.success(request, "Supplier saved.")
+        return redirect("suppliers")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Supplier" if pk else "Add Supplier",
+            "station": station,
+            "form": form,
+            "entity_label": "Supplier",
+            "submit_label": "Save Supplier",
+            "cancel_url": reverse("suppliers"),
+        },
+    )
+
+
+@login_required
+def inventory(request):
+    station = permitted_current_station(request, VIEW_INVENTORY)
+    tanks = station.tanks.select_related("fuel_product").all()
+    return render(
+        request,
+        "frontend/inventory.html",
+        {
+            "page_title": "Fuel Inventory",
+            "station": station,
+            "tanks": tanks,
+            "deliveries": station.fuel_deliveries.select_related(
+                "fuel_product",
+                "tank",
+                "supplier",
+                "received_by",
+            )[:25],
+            "adjustments": station.inventory_adjustments.select_related(
+                "tank",
+                "tank__fuel_product",
+                "encoded_by",
+                "approved_by",
+            )[:25],
+            "can_create_adjustments": user_has_station_permission(
+                request.user,
+                station,
+                CREATE_ADJUSTMENTS,
+            ),
+            "can_approve_adjustments": user_has_station_permission(
+                request.user,
+                station,
+                APPROVE_ADJUSTMENTS,
+            ),
+            "can_add_delivery": user_has_station_permission(
+                request.user,
+                station,
+                MANAGE_DELIVERIES,
+            ),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def inventory_adjustment_create(request):
+    station = permitted_current_station(request, CREATE_ADJUSTMENTS)
+    adjustment = InventoryAdjustment(station=station, encoded_by=request.user)
+    form = InventoryAdjustmentForm(
+        request.POST or None,
+        instance=adjustment,
+        station=station,
+        initial={"adjustment_date": timezone.localdate()},
+    )
+    form.instance.station = station
+    form.instance.encoded_by = request.user
+    if request.method == "POST" and form.is_valid():
+        adjustment = form.save(commit=False)
+        adjustment.station = station
+        adjustment.encoded_by = request.user
+        adjustment.full_clean()
+        adjustment.save()
+        AuditLog.objects.create(
+            user=request.user,
+            action="inventory_adjustment_requested",
+            model_name="InventoryAdjustment",
+            object_id=str(adjustment.pk),
+            new_value={
+                "station": station.name,
+                "tank": adjustment.tank.name,
+                "type": adjustment.adjustment_type,
+                "liters": str(adjustment.liters),
+            },
+        )
+        messages.success(request, "Inventory adjustment submitted for approval.")
+        return redirect("inventory")
+    return render(
+        request,
+        "frontend/inventory_adjustment_form.html",
+        {
+            "page_title": "Inventory Adjustment",
+            "station": station,
+            "form": form,
+        },
+    )
+
+
+@login_required
+@require_POST
+def inventory_adjustment_approve(request, pk):
+    station = permitted_current_station(request, APPROVE_ADJUSTMENTS)
+    adjustment = get_object_or_404(
+        InventoryAdjustment.objects.select_related("tank"),
+        pk=pk,
+        station=station,
+        applied_at=None,
+    )
+    try:
+        adjustment.apply(request.user)
+    except ValidationError as error:
+        messages.error(
+            request,
+            error.message_dict if hasattr(error, "message_dict") else error.messages,
+        )
+    else:
+        AuditLog.objects.create(
+            user=request.user,
+            action="inventory_adjustment_applied",
+            model_name="InventoryAdjustment",
+            object_id=str(adjustment.pk),
+            new_value={
+                "tank": adjustment.tank.name,
+                "type": adjustment.adjustment_type,
+                "liters": str(adjustment.liters),
+            },
+        )
+        messages.success(request, "Inventory adjustment approved and applied.")
+    return redirect("inventory")
+
+
 @login_required
 def dashboard(request):
     station = get_current_station(request.user)
@@ -462,13 +794,17 @@ def dashboard(request):
             "metrics": metrics,
             "alerts": alerts,
             "recent_operations": recent_operations,
+            "can_view_reports": bool(
+                station
+                and user_has_station_permission(request.user, station, VIEW_REPORTS)
+            ),
         },
     )
 
 
 @login_required
 def daily_operations(request):
-    station = get_current_station(request.user)
+    station = permitted_current_station(request, ENCODE_OPERATIONS)
     operations = (
         DailyOperation.objects.filter(station=station)
         .select_related("station", "encoded_by", "approved_by")
@@ -489,7 +825,10 @@ def daily_operations(request):
 
 @login_required
 def daily_operation_create(request):
-    allowed_stations = stations_for_user(request.user)
+    allowed_stations = stations_for_user_with_permission(
+        request.user,
+        ENCODE_OPERATIONS,
+    )
     if request.method == "POST":
         form = DailyOperationForm(request.POST, stations=allowed_stations)
         if form.is_valid():
@@ -518,7 +857,12 @@ def daily_operation_create(request):
 @login_required
 def daily_operation_detail(request, pk):
     operation = get_object_or_404(
-        DailyOperation.objects.filter(station__in=stations_for_user(request.user)).select_related(
+        DailyOperation.objects.filter(
+            station__in=stations_for_user_with_permission(
+                request.user,
+                ENCODE_OPERATIONS,
+            )
+        ).select_related(
             "station",
             "encoded_by",
             "approved_by",
@@ -602,8 +946,13 @@ def daily_operation_detail(request, pk):
 
 @login_required
 def fuel_deliveries(request):
-    station = get_current_station(request.user)
-    deliveries = FuelDelivery.objects.filter(station__in=stations_for_user(request.user)).select_related(
+    station = permitted_current_station(request, MANAGE_DELIVERIES)
+    deliveries = FuelDelivery.objects.filter(
+        station__in=stations_for_user_with_permission(
+            request.user,
+            MANAGE_DELIVERIES,
+        )
+    ).select_related(
         "station",
         "fuel_product",
         "tank",
@@ -623,7 +972,11 @@ def fuel_deliveries(request):
 
 @login_required
 def fuel_delivery_create(request):
-    allowed_stations = stations_for_user(request.user)
+    station = permitted_current_station(request, MANAGE_DELIVERIES)
+    allowed_stations = stations_for_user_with_permission(
+        request.user,
+        MANAGE_DELIVERIES,
+    )
     if request.method == "POST":
         form = FuelDeliveryForm(request.POST, stations=allowed_stations)
         if form.is_valid():
@@ -638,7 +991,6 @@ def fuel_delivery_create(request):
                 return redirect("fuel_deliveries")
     else:
         initial = {"delivery_date": timezone.localdate()}
-        station = get_current_station(request.user)
         if station:
             initial["station"] = station
         form = FuelDeliveryForm(initial=initial, stations=allowed_stations)
@@ -655,8 +1007,13 @@ def fuel_delivery_create(request):
 
 @login_required
 def expenses(request):
-    station = get_current_station(request.user)
-    items = Expense.objects.filter(station__in=stations_for_user(request.user)).select_related(
+    station = permitted_current_station(request, MANAGE_EXPENSES)
+    items = Expense.objects.filter(
+        station__in=stations_for_user_with_permission(
+            request.user,
+            MANAGE_EXPENSES,
+        )
+    ).select_related(
         "station",
         "category",
         "encoded_by",
@@ -674,7 +1031,11 @@ def expenses(request):
 
 @login_required
 def expense_create(request):
-    allowed_stations = stations_for_user(request.user)
+    station = permitted_current_station(request, MANAGE_EXPENSES)
+    allowed_stations = stations_for_user_with_permission(
+        request.user,
+        MANAGE_EXPENSES,
+    )
     if request.method == "POST":
         form = ExpenseForm(request.POST, stations=allowed_stations)
         if form.is_valid():
@@ -685,7 +1046,6 @@ def expense_create(request):
             return redirect("expenses")
     else:
         initial = {"expense_date": timezone.localdate()}
-        station = get_current_station(request.user)
         if station:
             initial["station"] = station
         form = ExpenseForm(initial=initial, stations=allowed_stations)
@@ -702,8 +1062,8 @@ def expense_create(request):
 
 @login_required
 def reports(request):
-    station = get_current_station(request.user)
-    stations = stations_for_user(request.user)
+    station = permitted_current_station(request, VIEW_REPORTS)
+    stations = stations_for_user_with_permission(request.user, VIEW_REPORTS)
     selected_station_id = request.GET.get("station")
     if selected_station_id:
         station = stations.filter(pk=selected_station_id).first() or station

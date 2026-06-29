@@ -14,9 +14,11 @@ from api.models import (
     AuditLog,
     DailyOperation,
     FuelProduct,
+    InventoryAdjustment,
     Pump,
     Station,
     StationMembership,
+    Supplier,
     Tank,
 )
 from .guides import GUIDE_VERSION
@@ -148,6 +150,44 @@ class RegistrationAndAccessTests(TestCase):
         )
         station = Station.objects.create(name=station_name, owner=user)
         return user, station
+
+    def create_product_chain(self, station, suffix="1"):
+        product = FuelProduct.objects.create(
+            station=station,
+            name=f"Diesel {suffix}",
+            code=f"DIESEL-{suffix}",
+            current_price_per_liter="60.00",
+            cost_per_liter="55.00",
+        )
+        tank = Tank.objects.create(
+            station=station,
+            fuel_product=product,
+            name=f"Tank {suffix}",
+            capacity_liters="10000.000",
+            current_volume_liters="5000.000",
+            reorder_level_liters="1500.000",
+        )
+        pump = Pump.objects.create(
+            station=station,
+            fuel_product=product,
+            tank=tank,
+            name=f"Pump {suffix}",
+            meter_number=f"METER-{suffix}",
+        )
+        return product, tank, pump
+
+    def create_station_member(self, station, role, username):
+        user = get_user_model().objects.create_user(
+            username=username,
+            email=username,
+            password="SafeFuelOpsPass123!",
+        )
+        StationMembership.objects.create(
+            station=station,
+            user=user,
+            role=role,
+        )
+        return user
 
     @override_settings(EMAIL_VERIFICATION_REQUIRED=False, REGISTRATION_ENABLED=True)
     def test_owner_registration_atomically_creates_account_station_and_membership(self):
@@ -350,3 +390,170 @@ class RegistrationAndAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Too many registration attempts")
         self.assertContains(response, 'class="toast-notification error"')
+
+    def test_station_settings_add_multiple_products_tanks_and_pumps(self):
+        owner, station = self.create_owner_station()
+        self.client.force_login(owner)
+
+        for suffix, name in [("PREM", "Premium"), ("DSL", "Diesel")]:
+            response = self.client.post(
+                reverse("fuel_product_create"),
+                {
+                    "name": name,
+                    "code": suffix,
+                    "current_price_per_liter": "65.00",
+                    "cost_per_liter": "59.00",
+                    "is_active": "on",
+                },
+            )
+            self.assertRedirects(response, reverse("station_settings"), fetch_redirect_response=False)
+
+        premium = station.fuel_products.get(code="PREM")
+        response = self.client.post(
+            reverse("tank_create"),
+            {
+                "fuel_product": premium.pk,
+                "name": "Premium Tank",
+                "capacity_liters": "12000.000",
+                "current_volume_liters": "6000.000",
+                "reorder_level_liters": "2000.000",
+                "is_active": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("station_settings"), fetch_redirect_response=False)
+        tank = station.tanks.get(name="Premium Tank")
+
+        response = self.client.post(
+            reverse("pump_create"),
+            {
+                "fuel_product": premium.pk,
+                "tank": tank.pk,
+                "name": "Premium Pump 1",
+                "meter_number": "PREM-001",
+                "is_active": "on",
+            },
+        )
+
+        self.assertRedirects(response, reverse("station_settings"), fetch_redirect_response=False)
+        self.assertEqual(station.fuel_products.count(), 2)
+        self.assertEqual(station.tanks.count(), 1)
+        self.assertEqual(station.pumps.count(), 1)
+
+    def test_suppliers_are_station_scoped_in_pages_and_delivery_form(self):
+        first_owner, first_station = self.create_owner_station()
+        _, second_station = self.create_owner_station(
+            username="second-owner@example.com",
+            station_name="Second Station",
+        )
+        first_supplier = Supplier.objects.create(
+            station=first_station,
+            name="First Supplier",
+        )
+        second_supplier = Supplier.objects.create(
+            station=second_station,
+            name="Private Second Supplier",
+        )
+        self.client.force_login(first_owner)
+
+        response = self.client.get(reverse("suppliers"))
+        self.assertContains(response, first_supplier.name)
+        self.assertNotContains(response, second_supplier.name)
+
+        response = self.client.get(reverse("fuel_delivery_create"))
+        supplier_queryset = response.context["form"].fields["supplier"].queryset
+        self.assertQuerySetEqual(
+            supplier_queryset,
+            [first_supplier],
+            transform=lambda supplier: supplier,
+        )
+
+        product, tank, _ = self.create_product_chain(first_station)
+        response = self.client.post(
+            reverse("fuel_delivery_create"),
+            {
+                "station": first_station.pk,
+                "fuel_product": product.pk,
+                "tank": tank.pk,
+                "supplier": second_supplier.pk,
+                "delivery_date": timezone.localdate().isoformat(),
+                "liters_delivered": "100.000",
+                "cost_per_liter": "54.00",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Select a valid choice")
+
+    def test_inventory_adjustment_is_pending_until_owner_approval(self):
+        owner, station = self.create_owner_station()
+        _, tank, _ = self.create_product_chain(station)
+        staff = self.create_station_member(
+            station,
+            StationMembership.Role.STAFF,
+            "staff-adjustment@example.com",
+        )
+        self.client.force_login(staff)
+
+        response = self.client.post(
+            reverse("inventory_adjustment_create"),
+            {
+                "tank": tank.pk,
+                "adjustment_date": timezone.localdate().isoformat(),
+                "adjustment_type": InventoryAdjustment.AdjustmentType.LOSS,
+                "liters": "250.000",
+                "reason": "Physical dip reconciliation",
+            },
+        )
+        self.assertRedirects(response, reverse("inventory"), fetch_redirect_response=False)
+        adjustment = InventoryAdjustment.objects.get(station=station)
+        tank.refresh_from_db()
+        self.assertIsNone(adjustment.applied_at)
+        self.assertEqual(str(tank.current_volume_liters), "5000.000")
+
+        response = self.client.post(reverse("inventory_adjustment_approve", args=[adjustment.pk]))
+        self.assertEqual(response.status_code, 403)
+
+        self.client.force_login(owner)
+        response = self.client.post(reverse("inventory_adjustment_approve", args=[adjustment.pk]))
+        self.assertRedirects(response, reverse("inventory"), fetch_redirect_response=False)
+        adjustment.refresh_from_db()
+        tank.refresh_from_db()
+        self.assertIsNotNone(adjustment.applied_at)
+        self.assertEqual(str(tank.current_volume_liters), "4750.000")
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="inventory_adjustment_applied",
+                object_id=str(adjustment.pk),
+            ).exists()
+        )
+
+    def test_staff_and_accountant_permissions_are_enforced_in_views_and_navigation(self):
+        owner, station = self.create_owner_station()
+        self.create_product_chain(station)
+        staff = self.create_station_member(
+            station,
+            StationMembership.Role.STAFF,
+            "role-staff@example.com",
+        )
+        accountant = self.create_station_member(
+            station,
+            StationMembership.Role.ACCOUNTANT,
+            "role-accountant@example.com",
+        )
+
+        self.client.force_login(staff)
+        for route_name in ["daily_operations", "fuel_deliveries", "inventory", "expenses"]:
+            self.assertEqual(self.client.get(reverse(route_name)).status_code, 200)
+        for route_name in ["reports", "station_settings", "team_members"]:
+            self.assertEqual(self.client.get(reverse(route_name)).status_code, 403)
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Monthly Net Profit")
+        self.assertNotContains(response, f'href="{reverse("reports")}"')
+
+        self.client.force_login(accountant)
+        for route_name in ["expenses", "reports"]:
+            self.assertEqual(self.client.get(reverse(route_name)).status_code, 200)
+        for route_name in ["daily_operations", "fuel_deliveries", "inventory", "station_settings"]:
+            self.assertEqual(self.client.get(reverse(route_name)).status_code, 403)
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Monthly Net Profit")
+        self.assertNotContains(response, f'href="{reverse("daily_operations")}"')

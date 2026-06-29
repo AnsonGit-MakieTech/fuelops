@@ -26,28 +26,46 @@
           <section class="nav-section">
             <p class="nav-section-title">Main</p>
             <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i data-lucide="gauge"></i> Dashboard</a>
-            <a class="nav-link {% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_create' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Daily Sales</a>
+            {% if station_permissions.encode_operations %}
+              <a class="nav-link {% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_create' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Daily Sales</a>
+            {% endif %}
           </section>
 
-          <section class="nav-section">
-            <p class="nav-section-title">Operations</p>
-            <a class="nav-link {% if request.resolver_match.url_name == 'fuel_deliveries' or request.resolver_match.url_name == 'fuel_delivery_create' %}active{% endif %}" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Fuel Refill</a>
-          </section>
-
-          <section class="nav-section">
-            <p class="nav-section-title">Finance</p>
-            <a class="nav-link {% if request.resolver_match.url_name == 'expenses' or request.resolver_match.url_name == 'expense_create' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expenses</a>
-          </section>
-
-          <section class="nav-section">
-            <p class="nav-section-title">Reports</p>
-            <a class="nav-link {% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
-          </section>
-
-          {% if can_manage_team %}
+          {% if station_permissions.manage_deliveries or station_permissions.view_inventory %}
             <section class="nav-section">
-              <p class="nav-section-title">Access</p>
-              <a class="nav-link {% if request.resolver_match.url_name == 'team_members' %}active{% endif %}" href="{% url 'team_members' %}"><i data-lucide="users"></i> Team</a>
+              <p class="nav-section-title">Operations</p>
+              {% if station_permissions.manage_deliveries %}
+                <a class="nav-link {% if request.resolver_match.url_name == 'fuel_deliveries' or request.resolver_match.url_name == 'fuel_delivery_create' %}active{% endif %}" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Fuel Refill</a>
+              {% endif %}
+              {% if station_permissions.view_inventory %}
+                <a class="nav-link {% if request.resolver_match.url_name == 'inventory' or request.resolver_match.url_name == 'inventory_adjustment_create' %}active{% endif %}" href="{% url 'inventory' %}"><i data-lucide="database"></i> Inventory</a>
+              {% endif %}
+            </section>
+          {% endif %}
+
+          {% if station_permissions.manage_expenses %}
+            <section class="nav-section">
+              <p class="nav-section-title">Finance</p>
+              <a class="nav-link {% if request.resolver_match.url_name == 'expenses' or request.resolver_match.url_name == 'expense_create' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expenses</a>
+            </section>
+          {% endif %}
+
+          {% if station_permissions.view_reports %}
+            <section class="nav-section">
+              <p class="nav-section-title">Reports</p>
+              <a class="nav-link {% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+            </section>
+          {% endif %}
+
+          {% if station_permissions.manage_catalog or station_permissions.manage_team %}
+            <section class="nav-section">
+              <p class="nav-section-title">Settings</p>
+              {% if station_permissions.manage_catalog %}
+                <a class="nav-link {% if request.resolver_match.url_name == 'station_settings' or request.resolver_match.url_name == 'station_edit' or request.resolver_match.url_name == 'fuel_product_create' or request.resolver_match.url_name == 'fuel_product_edit' or request.resolver_match.url_name == 'tank_create' or request.resolver_match.url_name == 'tank_edit' or request.resolver_match.url_name == 'pump_create' or request.resolver_match.url_name == 'pump_edit' or request.resolver_match.url_name == 'suppliers' or request.resolver_match.url_name == 'supplier_create' or request.resolver_match.url_name == 'supplier_edit' %}active{% endif %}" href="{% url 'station_settings' %}"><i data-lucide="settings"></i> Station</a>
+              {% endif %}
+              {% if station_permissions.manage_team %}
+                <a class="nav-link {% if request.resolver_match.url_name == 'team_members' %}active{% endif %}" href="{% url 'team_members' %}"><i data-lucide="users"></i> Team</a>
+              {% endif %}
             </section>
           {% endif %}
         </nav>
@@ -79,7 +97,10 @@
             <strong>FuelOps</strong>
           </a>
           <div class="mobile-header-actions">
-            {% if can_manage_team %}
+            {% if station_permissions.manage_catalog %}
+              <a class="btn-icon" href="{% url 'station_settings' %}" aria-label="Station settings" title="Station settings"><i data-lucide="settings"></i></a>
+            {% endif %}
+            {% if station_permissions.manage_team %}
               <a class="btn-icon" href="{% url 'team_members' %}" aria-label="Team access" title="Team access"><i data-lucide="users"></i></a>
             {% endif %}
             {% if guided_tour %}
@@ -140,10 +161,18 @@
 
     <nav class="bottom-nav">
       <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i data-lucide="gauge"></i> Today</a>
-      <a class="{% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Sales</a>
-      <a class="{% if request.resolver_match.url_name == 'fuel_deliveries' %}active{% endif %}" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Refill</a>
-      <a class="{% if request.resolver_match.url_name == 'expenses' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expense</a>
-      <a class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+      {% if station_permissions.encode_operations %}
+        <a class="{% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Sales</a>
+      {% endif %}
+      {% if station_permissions.view_inventory %}
+        <a class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}" href="{% url 'inventory' %}"><i data-lucide="database"></i> Stock</a>
+      {% endif %}
+      {% if station_permissions.manage_expenses %}
+        <a class="{% if request.resolver_match.url_name == 'expenses' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expense</a>
+      {% endif %}
+      {% if station_permissions.view_reports %}
+        <a class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
+      {% endif %}
     </nav>
   {% else %}
     <main class="auth-page">

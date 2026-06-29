@@ -40,11 +40,11 @@ DONE - Improve Dashboard and Reports layouts on phone screens.
 DONE - Replace non-field form error blocks with slide notifications.
 DONE - Run registration, invitation, tenancy, mobile markup, notification, migration, and Django verification checks.
 DONE - Audit implemented routes and workflows against the project requirements.
-TODO - Build station settings for adding and editing multiple fuel products, tanks, pumps, and station details.
-TODO - Make suppliers station-scoped and add supplier management pages.
-TODO - Add a dedicated tank inventory page with delivery and adjustment history.
-TODO - Build the inventory adjustment workflow with owner or manager approval.
-TODO - Enforce role permissions for owner, manager, staff, and accountant across navigation, views, forms, and reports.
+DONE - Build station settings for adding and editing multiple fuel products, tanks, pumps, and station details.
+DONE - Make suppliers station-scoped and add supplier management pages.
+DONE - Add a dedicated tank inventory page with delivery and adjustment history.
+DONE - Build the inventory adjustment workflow with owner or manager approval.
+DONE - Enforce role permissions for owner, manager, staff, and accountant across navigation, views, forms, and reports.
 TODO - Enforce valid daily-operation state transitions and require readings and collection before approval.
 TODO - Prevent approved-operation changes at the model and admin layers and add a controlled reopen workflow.
 TODO - Add rejection notes input and correction workflow.
@@ -58,3 +58,4 @@ TODO - Add report date ranges, per-product totals, delivery cost, and inventory 
 TODO - Add the planned dashboard and reporting API endpoints or remove them from the MVP contract.
 TODO - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
 TODO - Run manual end-to-end QA and validate calculations with one real station.
+DONE - Run multi-product, supplier isolation, inventory adjustment, role permission, migration, and Django verification checks.

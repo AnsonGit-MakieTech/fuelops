@@ -11,6 +11,7 @@ from api.models import (
     Expense,
     FuelDelivery,
     FuelProduct,
+    InventoryAdjustment,
     Pump,
     PumpReading,
     Station,
@@ -24,7 +25,12 @@ from api.models import (
 class StyledFormMixin:
     def apply_styles(self):
         for field in self.fields.values():
-            field.widget.attrs.setdefault("class", "form-control")
+            css_class = (
+                "form-check-input"
+                if isinstance(field.widget, forms.CheckboxInput)
+                else "form-control"
+            )
+            field.widget.attrs.setdefault("class", css_class)
 
 
 class FuelOpsAuthenticationForm(AuthenticationForm):
@@ -134,6 +140,157 @@ class StationSetupForm(StyledFormMixin, forms.Form):
         if capacity is not None and reorder is not None and reorder > capacity:
             self.add_error("reorder_level", "Reorder level cannot exceed tank capacity.")
         return cleaned_data
+
+
+class StationForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Station
+        fields = ["name", "address", "timezone"]
+        widgets = {
+            "address": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+
+class FuelProductForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = FuelProduct
+        fields = [
+            "name",
+            "code",
+            "current_price_per_liter",
+            "cost_per_liter",
+            "is_active",
+        ]
+
+    def __init__(self, *args, station, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.apply_styles()
+
+    def clean_code(self):
+        code = self.cleaned_data["code"].strip().upper()
+        if self.station.fuel_products.filter(code=code).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("This product code already exists for the station.")
+        return code
+
+
+class TankForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Tank
+        fields = [
+            "fuel_product",
+            "name",
+            "capacity_liters",
+            "current_volume_liters",
+            "reorder_level_liters",
+            "is_active",
+        ]
+
+    def __init__(self, *args, station, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.fields["fuel_product"].queryset = station.fuel_products.filter(is_active=True)
+        if self.instance.pk:
+            self.fields["current_volume_liters"].disabled = True
+            self.fields["current_volume_liters"].help_text = (
+                "Use an inventory adjustment to change existing stock."
+            )
+        self.apply_styles()
+
+    def clean_fuel_product(self):
+        product = self.cleaned_data["fuel_product"]
+        if product.station_id != self.station.id:
+            raise forms.ValidationError("Fuel product must belong to this station.")
+        return product
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        if self.station.tanks.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("This tank name already exists for the station.")
+        return name
+
+
+class PumpForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Pump
+        fields = ["fuel_product", "tank", "name", "meter_number", "is_active"]
+
+    def __init__(self, *args, station, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.fields["fuel_product"].queryset = station.fuel_products.filter(is_active=True)
+        self.fields["tank"].queryset = station.tanks.filter(is_active=True).select_related(
+            "fuel_product"
+        )
+        self.apply_styles()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        product = cleaned_data.get("fuel_product")
+        tank = cleaned_data.get("tank")
+        if product and product.station_id != self.station.id:
+            self.add_error("fuel_product", "Fuel product must belong to this station.")
+        if tank and tank.station_id != self.station.id:
+            self.add_error("tank", "Tank must belong to this station.")
+        if product and tank and tank.fuel_product_id != product.id:
+            self.add_error("tank", "Tank fuel product must match the pump fuel product.")
+        return cleaned_data
+
+    def clean_meter_number(self):
+        meter_number = self.cleaned_data["meter_number"].strip()
+        if self.station.pumps.filter(meter_number__iexact=meter_number).exclude(
+            pk=self.instance.pk
+        ).exists():
+            raise forms.ValidationError("This meter number already exists for the station.")
+        return meter_number
+
+
+class SupplierForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Supplier
+        fields = ["name", "contact_person", "phone", "email", "address", "is_active"]
+        widgets = {
+            "address": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, station, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.apply_styles()
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        if self.station.suppliers.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("This supplier already exists for the station.")
+        return name
+
+
+class InventoryAdjustmentForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = InventoryAdjustment
+        fields = ["tank", "adjustment_date", "adjustment_type", "liters", "reason"]
+        widgets = {
+            "adjustment_date": forms.DateInput(attrs={"type": "date"}),
+            "reason": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, station, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.fields["tank"].queryset = station.tanks.filter(is_active=True).select_related(
+            "fuel_product"
+        )
+        self.apply_styles()
+
+    def clean_tank(self):
+        tank = self.cleaned_data["tank"]
+        if tank.station_id != self.station.id:
+            raise forms.ValidationError("Tank must belong to this station.")
+        return tank
 
 
 class InviteMemberForm(StyledFormMixin, forms.Form):
@@ -295,7 +452,10 @@ class FuelDeliveryForm(StyledFormMixin, forms.ModelForm):
             station__in=allowed_stations,
             is_active=True,
         )
-        self.fields["supplier"].queryset = Supplier.objects.filter(is_active=True)
+        self.fields["supplier"].queryset = Supplier.objects.filter(
+            station__in=allowed_stations,
+            is_active=True,
+        )
         self.apply_styles()
 
 

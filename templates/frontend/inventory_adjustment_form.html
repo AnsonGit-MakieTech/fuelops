@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>New Inventory Adjustment</h2>
+      <p>{{ station.name }} / owner or manager approval is required before stock changes</p>
+    </div>
+  </div>
+
+  <section class="panel setup-panel">
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-grid" data-guide-target="adjustment-fields">
+        {% include "frontend/includes/form_fields.html" with form=form %}
+      </div>
+      <div class="button-row" style="margin-top: 18px;" data-guide-target="adjustment-submit">
+        <button
+          class="btn-accent"
+          type="submit"
+          data-confirm-title="Submit inventory adjustment?"
+          data-confirm-message="The request remains pending until an owner or manager approves it."
+          data-confirm-label="Submit Request"
+          data-confirm-variant="btn-accent"
+        ><i data-lucide="send"></i> Submit Request</button>
+        <a class="btn-ghost" href="{% url 'inventory' %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}
