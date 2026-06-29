@@ -13,14 +13,49 @@
       <div class="section-title"><h3>Members</h3><span class="badge badge-info">{{ members|length }}</span></div>
       <div class="table-wrapper">
         <table class="table compact-table mobile-stack-table">
-          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Joined</th></tr></thead>
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Joined</th><th>Action</th></tr></thead>
           <tbody>
             {% for membership in members %}
               <tr>
                 <td data-label="User">{{ membership.user.get_full_name|default:membership.user.get_username }}<br><span class="table-secondary">{{ membership.user.email }}</span></td>
-                <td data-label="Role"><span class="badge badge-info">{{ membership.get_role_display }}</span></td>
+                <td data-label="Role">
+                  {% if membership.role != "owner" or can_manage_owners %}
+                    <form class="member-role-form" method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="change_role">
+                      <input type="hidden" name="membership_id" value="{{ membership.pk }}">
+                      <select class="form-control" name="role" aria-label="Role for {{ membership.user.get_username }}">
+                        {% for value, label in role_choices %}
+                          {% if value != "owner" or can_manage_owners %}
+                            <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
+                          {% endif %}
+                        {% endfor %}
+                      </select>
+                      <button class="btn-icon" type="submit" aria-label="Save role" title="Save role" data-confirm-title="Change member role?" data-confirm-message="This immediately changes what the member can access at this station." data-confirm-label="Change Role"><i data-lucide="save"></i></button>
+                    </form>
+                  {% else %}
+                    <span class="badge badge-info">{{ membership.get_role_display }}</span>
+                  {% endif %}
+                </td>
                 <td data-label="Status">{{ membership.get_status_display }}</td>
                 <td data-label="Joined">{{ membership.joined_at|date:"M j, Y" }}</td>
+                <td data-label="Action">
+                  {% if membership.user_id != request.user.id and membership.role != "owner" or can_manage_owners and membership.user_id != request.user.id %}
+                    <form method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="membership_id" value="{{ membership.pk }}">
+                      {% if membership.status == "suspended" %}
+                        <input type="hidden" name="action" value="reactivate_member">
+                        <button class="btn-icon" type="submit" aria-label="Reactivate member" title="Reactivate member" data-confirm-title="Reactivate member?" data-confirm-message="This restores the member's station access using their assigned role." data-confirm-label="Reactivate"><i data-lucide="user-check"></i></button>
+                      {% elif membership.status == "active" %}
+                        <input type="hidden" name="action" value="suspend_member">
+                        <button class="btn-icon text-danger" type="submit" aria-label="Suspend member" title="Suspend member" data-confirm-title="Suspend member?" data-confirm-message="This immediately blocks the member from this station without deleting their history." data-confirm-label="Suspend" data-confirm-variant="btn-danger"><i data-lucide="user-x"></i></button>
+                      {% endif %}
+                    </form>
+                  {% else %}
+                    <span class="table-secondary">-</span>
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
           </tbody>

@@ -283,3 +283,54 @@ class FuelOpsCalculationTests(TestCase):
 
         reading.refresh_from_db()
         self.assertEqual(reading.cost_per_liter, Decimal("60.00"))
+
+    def test_archiving_reading_preserves_history_and_recalculates_collection(self):
+        reading = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("110.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        collection = CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("650.00"),
+        )
+
+        reading.archive(self.user, "Wrong meter entry")
+
+        reading.refresh_from_db()
+        collection.refresh_from_db()
+        self.assertTrue(reading.is_archived)
+        self.assertEqual(collection.expected_sales, Decimal("0.00"))
+        replacement = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("109.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        self.assertEqual(replacement.liters_sold, Decimal("9.000"))
+
+    def test_archiving_delivery_reverses_inventory_and_locks_record(self):
+        supplier = Supplier.objects.create(station=self.station, name="Archive Supplier")
+        delivery = FuelDelivery.objects.create(
+            station=self.station,
+            fuel_product=self.product,
+            tank=self.tank,
+            supplier=supplier,
+            delivery_date=date(2026, 6, 26),
+            liters_delivered=Decimal("500.000"),
+            cost_per_liter=Decimal("60.00"),
+            received_by=self.user,
+        )
+
+        delivery.archive(self.user, "Duplicate invoice")
+
+        self.tank.refresh_from_db()
+        delivery.refresh_from_db()
+        self.assertEqual(self.tank.current_volume_liters, Decimal("1000.000"))
+        self.assertTrue(delivery.is_archived)
+        delivery.notes = "Attempted edit"
+        with self.assertRaises(ValidationError):
+            delivery.save()

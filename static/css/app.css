@@ -169,6 +169,32 @@ textarea {
   gap: 12px;
 }
 
+.station-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.station-switcher select {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+.station-switcher-mobile {
+  min-width: 0;
+  max-width: 132px;
+  padding: 6px;
+}
+
 .mobile-header-actions {
   display: flex;
   align-items: center;
@@ -482,6 +508,33 @@ textarea {
   gap: 12px;
   align-items: end;
   margin-bottom: 16px;
+}
+
+.member-role-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.member-role-form .form-control {
+  min-width: 110px;
+}
+
+.archive-inline-form {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+  margin-top: 8px;
+}
+
+.row-action-menu summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.row-action-menu summary::-webkit-details-marker {
+  display: none;
 }
 
 .form-grid {

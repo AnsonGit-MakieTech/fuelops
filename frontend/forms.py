@@ -3,12 +3,14 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from django.utils import timezone
 
 from api.models import (
     CashCollection,
     DailyOperation,
     Expense,
+    ExpenseCategory,
     FuelDelivery,
     FuelProduct,
     InventoryAdjustment,
@@ -377,6 +379,20 @@ class DailyOperationForm(StyledFormMixin, forms.ModelForm):
         self.fields["station"].queryset = stations if stations is not None else Station.objects.none()
         self.apply_styles()
 
+    def clean(self):
+        cleaned_data = super().clean()
+        station = cleaned_data.get("station")
+        operation_date = cleaned_data.get("operation_date")
+        if station and operation_date and DailyOperation.objects.filter(
+            station=station,
+            operation_date=operation_date,
+            is_archived=False,
+        ).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError(
+                "Daily operation with this Station and Operation date already exists."
+            )
+        return cleaned_data
+
 
 class PumpReadingForm(StyledFormMixin, forms.ModelForm):
     class Meta:
@@ -397,6 +413,7 @@ class PumpReadingForm(StyledFormMixin, forms.ModelForm):
         if self.daily_operation and PumpReading.objects.filter(
             daily_operation=self.daily_operation,
             pump=pump,
+            is_archived=False,
         ).exclude(pk=self.instance.pk).exists():
             raise forms.ValidationError("This pump already has a reading for this operation.")
         return pump
@@ -479,5 +496,36 @@ class ExpenseForm(StyledFormMixin, forms.ModelForm):
 
     def __init__(self, *args, stations=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["station"].queryset = stations if stations is not None else Station.objects.none()
+        allowed_stations = stations if stations is not None else Station.objects.none()
+        self.fields["station"].queryset = allowed_stations
+        category_filter = Q(is_active=True)
+        if self.instance.pk and self.instance.category_id:
+            category_filter |= Q(pk=self.instance.category_id)
+        self.fields["category"].queryset = ExpenseCategory.objects.filter(
+            Q(station__isnull=True) | Q(station__in=allowed_stations),
+            category_filter,
+        ).distinct()
         self.apply_styles()
+
+
+class ExpenseCategoryForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = ExpenseCategory
+        fields = ["name", "description", "is_active"]
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, station=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.station = station
+        self.apply_styles()
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        duplicate = ExpenseCategory.objects.filter(name__iexact=name).filter(
+            Q(station__isnull=True) | Q(station=self.station)
+        ).exclude(pk=self.instance.pk)
+        if duplicate.exists():
+            raise forms.ValidationError(
+                "This category already exists as a system default or station category."
+            )
+        return name

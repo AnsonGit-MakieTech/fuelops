@@ -1,5 +1,4 @@
 import json
-from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -9,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -16,6 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods, require_POST
 
 from api.models import (
@@ -23,6 +24,7 @@ from api.models import (
     CashCollection,
     DailyOperation,
     Expense,
+    ExpenseCategory,
     FuelDelivery,
     FuelProduct,
     InventoryAdjustment,
@@ -38,6 +40,7 @@ from api.models import (
 from .forms import (
     CashCollectionForm,
     DailyOperationForm,
+    ExpenseCategoryForm,
     ExpenseForm,
     FuelDeliveryForm,
     FuelProductForm,
@@ -64,15 +67,17 @@ from .access import (
     VIEW_INVENTORY,
     VIEW_REPORTS,
     can_approve_station,
-    current_station_for_user,
+    current_station_for_request,
     require_station_permission,
     stations_for_user,
     stations_for_user_with_permission,
     user_has_station_permission,
 )
+from .audit import log_audit
 from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
 from .models import GuidedTourProgress
 from .security import request_is_rate_limited
+from .services.reporting import build_report, date_range, month_bounds
 from .services.registration import (
     accept_invitation_for_user,
     activate_user,
@@ -185,7 +190,7 @@ def resend_verification(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def station_setup(request):
-    station = get_current_station(request.user)
+    station = get_current_station(request)
     if not station:
         messages.error(request, "No station is assigned to your account.")
         return redirect("dashboard")
@@ -221,12 +226,106 @@ def station_setup(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def team_members(request):
-    station = get_current_station(request.user)
+    station = get_current_station(request)
     if not station:
         raise PermissionDenied
     require_station_permission(request.user, station, MANAGE_TEAM)
 
-    if request.method == "POST" and request.POST.get("action") == "revoke_invitation":
+    action = request.POST.get("action") if request.method == "POST" else None
+
+    if action in {"change_role", "suspend_member", "reactivate_member"}:
+        with transaction.atomic():
+            membership = get_object_or_404(
+                StationMembership.objects.select_for_update().select_related("user"),
+                pk=request.POST.get("membership_id"),
+                station=station,
+            )
+            actor = station.memberships.filter(
+                user=request.user,
+                status=StationMembership.Status.ACTIVE,
+            ).first()
+            actor_role = (
+                StationMembership.Role.OWNER
+                if request.user.is_superuser
+                else getattr(actor, "role", None)
+            )
+            if not actor_role:
+                raise PermissionDenied
+            if membership.role == StationMembership.Role.OWNER and actor_role != StationMembership.Role.OWNER:
+                raise PermissionDenied
+            if action == "suspend_member" and membership.user_id == request.user.id:
+                messages.error(request, "You cannot suspend your own access.")
+                return redirect("team_members")
+
+            old_value = {"role": membership.role, "status": membership.status}
+            if action == "change_role":
+                new_role = request.POST.get("role")
+                if new_role not in StationMembership.Role.values:
+                    messages.error(request, "Select a valid member role.")
+                    return redirect("team_members")
+                if new_role == StationMembership.Role.OWNER and actor_role != StationMembership.Role.OWNER:
+                    raise PermissionDenied
+                if (
+                    membership.role == StationMembership.Role.OWNER
+                    and new_role != StationMembership.Role.OWNER
+                    and membership.status == StationMembership.Status.ACTIVE
+                    and station.memberships.filter(
+                        role=StationMembership.Role.OWNER,
+                        status=StationMembership.Status.ACTIVE,
+                    ).count() <= 1
+                ):
+                    messages.error(request, "The station must keep at least one active owner.")
+                    return redirect("team_members")
+                membership.role = new_role
+                membership.save(update_fields=["role", "updated_at"])
+                event = "station_member_role_changed"
+                message = "Team member role updated."
+            elif action == "suspend_member":
+                if (
+                    membership.role == StationMembership.Role.OWNER
+                    and membership.status == StationMembership.Status.ACTIVE
+                    and station.memberships.filter(
+                        role=StationMembership.Role.OWNER,
+                        status=StationMembership.Status.ACTIVE,
+                    ).count() <= 1
+                ):
+                    messages.error(request, "The last active owner cannot be suspended.")
+                    return redirect("team_members")
+                membership.status = StationMembership.Status.SUSPENDED
+                membership.save(update_fields=["status", "updated_at"])
+                event = "station_member_suspended"
+                message = "Team member suspended."
+            else:
+                if membership.status != StationMembership.Status.SUSPENDED:
+                    messages.error(request, "Only suspended members can be reactivated.")
+                    return redirect("team_members")
+                membership.status = StationMembership.Status.ACTIVE
+                membership.save(update_fields=["status", "updated_at"])
+                event = "station_member_reactivated"
+                message = "Team member reactivated."
+
+            if station.owner_id == membership.user_id and (
+                membership.role != StationMembership.Role.OWNER
+                or membership.status != StationMembership.Status.ACTIVE
+            ):
+                replacement = station.memberships.filter(
+                    role=StationMembership.Role.OWNER,
+                    status=StationMembership.Status.ACTIVE,
+                ).exclude(pk=membership.pk).select_related("user").first()
+                station.owner = replacement.user
+                station.save(update_fields=["owner", "updated_at"])
+
+            log_audit(
+                request.user,
+                event,
+                membership,
+                old_value=old_value,
+                new_value={"role": membership.role, "status": membership.status},
+            )
+        messages.success(request, message)
+        return redirect("team_members")
+
+    if action == "revoke_invitation":
         invitation = get_object_or_404(
             StationInvitation,
             pk=request.POST.get("invitation_id"),
@@ -236,6 +335,12 @@ def team_members(request):
         )
         invitation.revoked_at = timezone.now()
         invitation.save(update_fields=["revoked_at", "updated_at"])
+        log_audit(
+            request.user,
+            "station_invitation_revoked",
+            invitation,
+            new_value={"email": invitation.email, "role": invitation.role},
+        )
         messages.success(request, "Invitation revoked.")
         return redirect("team_members")
 
@@ -268,11 +373,18 @@ def team_members(request):
             "station": station,
             "form": form,
             "members": station.memberships.select_related("user", "invited_by").order_by("role", "user__username"),
+            "can_manage_owners": request.user.is_superuser
+            or station.memberships.filter(
+                user=request.user,
+                role=StationMembership.Role.OWNER,
+                status=StationMembership.Status.ACTIVE,
+            ).exists(),
             "invitations": station.invitations.filter(
                 accepted_at=None,
                 revoked_at=None,
                 expires_at__gt=timezone.now(),
             ),
+            "role_choices": StationMembership.Role.choices,
         },
     )
 
@@ -297,6 +409,7 @@ def accept_invitation(request, token):
         if request.user.pk != existing_user.pk:
             raise PermissionDenied
         accept_invitation_for_user(invitation, request.user)
+        request.session["active_station_id"] = invitation.station_id
         messages.success(request, f"You now have access to {invitation.station.name}.")
         return redirect("dashboard")
 
@@ -310,6 +423,7 @@ def accept_invitation(request, token):
         elif form.is_valid():
             user = register_invited_user(invitation, form.cleaned_data)
             auth_login(request, user)
+            request.session["active_station_id"] = invitation.station_id
             messages.success(request, f"Account created. You now have access to {invitation.station.name}.")
             return redirect("dashboard")
     else:
@@ -363,23 +477,8 @@ def user_can_approve(user, station):
     return can_approve_station(user, station)
 
 
-def get_current_station(user):
-    return current_station_for_user(user)
-
-
-def month_bounds(month_value):
-    try:
-        year, month = [int(part) for part in month_value.split("-")]
-        start = date(year, month, 1)
-    except (AttributeError, TypeError, ValueError):
-        today = timezone.localdate()
-        start = today.replace(day=1)
-
-    if start.month == 12:
-        end = date(start.year + 1, 1, 1)
-    else:
-        end = date(start.year, start.month + 1, 1)
-    return start, end
+def get_current_station(request):
+    return current_station_for_request(request)
 
 
 def dashboard_metrics(station):
@@ -389,16 +488,21 @@ def dashboard_metrics(station):
     today_readings = PumpReading.objects.filter(
         daily_operation__station=station,
         daily_operation__operation_date=today,
+        daily_operation__is_archived=False,
+        is_archived=False,
     ).select_related("pump__fuel_product")
     today_collections = CashCollection.objects.filter(
         daily_operation__station=station,
         daily_operation__operation_date=today,
+        daily_operation__is_archived=False,
     )
     monthly_readings = PumpReading.objects.filter(
         daily_operation__station=station,
         daily_operation__status=DailyOperation.Status.APPROVED,
         daily_operation__operation_date__gte=month_start,
         daily_operation__operation_date__lte=today,
+        daily_operation__is_archived=False,
+        is_archived=False,
     )
 
     today_expected_sales = sum((item.expected_sales for item in today_readings), ZERO)
@@ -416,6 +520,7 @@ def dashboard_metrics(station):
             station=station,
             expense_date__gte=month_start,
             expense_date__lte=today,
+            is_archived=False,
         ).aggregate(total=Sum("amount"))["total"]
     )
     monthly_net_profit = monthly_expected_sales - monthly_fuel_cost - monthly_expenses
@@ -433,11 +538,33 @@ def dashboard_metrics(station):
 
 
 def permitted_current_station(request, permission):
-    station = get_current_station(request.user)
+    station = get_current_station(request)
     if not station:
         raise PermissionDenied
     require_station_permission(request.user, station, permission)
     return station
+
+
+@login_required
+@require_POST
+def switch_station(request):
+    station = get_object_or_404(
+        stations_for_user(request.user),
+        pk=request.POST.get("station_id"),
+    )
+    previous_id = request.session.get("active_station_id")
+    request.session["active_station_id"] = station.pk
+    log_audit(
+        request.user,
+        "active_station_switched",
+        station,
+        old_value={"station_id": previous_id},
+        new_value={"station_id": station.pk},
+    )
+    next_url = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = reverse("dashboard")
+    return redirect(next_url)
 
 
 @login_required
@@ -632,7 +759,7 @@ def inventory(request):
             "page_title": "Fuel Inventory",
             "station": station,
             "tanks": tanks,
-            "deliveries": station.fuel_deliveries.select_related(
+            "deliveries": station.fuel_deliveries.filter(is_archived=False).select_related(
                 "fuel_product",
                 "tank",
                 "supplier",
@@ -742,11 +869,11 @@ def inventory_adjustment_approve(request, pk):
 
 @login_required
 def dashboard(request):
-    station = get_current_station(request.user)
+    station = get_current_station(request)
     tanks = Tank.objects.filter(station=station).select_related("fuel_product") if station else []
     metrics = dashboard_metrics(station) if station else {}
     recent_operations = (
-        DailyOperation.objects.filter(station=station)
+        DailyOperation.objects.filter(station=station, is_archived=False)
         .select_related("station", "encoded_by", "approved_by")
         .order_by("-operation_date")[:6]
         if station
@@ -776,6 +903,7 @@ def dashboard(request):
     if station and not DailyOperation.objects.filter(
         station=station,
         operation_date=metrics.get("today"),
+        is_archived=False,
     ).exists():
         alerts.append(
             {
@@ -807,7 +935,7 @@ def dashboard(request):
 def daily_operations(request):
     station = permitted_current_station(request, ENCODE_OPERATIONS)
     operations = (
-        DailyOperation.objects.filter(station=station)
+        DailyOperation.objects.filter(station=station, is_archived=False)
         .select_related("station", "encoded_by", "approved_by")
         .order_by("-operation_date")
         if station
@@ -836,11 +964,17 @@ def daily_operation_create(request):
             operation = form.save(commit=False)
             operation.encoded_by = request.user
             operation.save()
+            log_audit(
+                request.user,
+                "daily_operation_created",
+                operation,
+                new_value={"station": operation.station_id, "date": operation.operation_date},
+            )
             messages.success(request, "Daily operation created.")
             return redirect("daily_operation_detail", pk=operation.pk)
     else:
         initial = {"operation_date": timezone.localdate()}
-        station = get_current_station(request.user)
+        station = get_current_station(request)
         if station:
             initial["station"] = station
         form = DailyOperationForm(initial=initial, stations=allowed_stations)
@@ -867,7 +1001,7 @@ def daily_operation_detail(request, pk):
             "station",
             "encoded_by",
             "approved_by",
-        ),
+        ).filter(is_archived=False),
         pk=pk,
     )
     reading_form = PumpReadingForm(station=operation.station, daily_operation=operation)
@@ -894,6 +1028,18 @@ def daily_operation_detail(request, pk):
                 reading = reading_form.save(commit=False)
                 reading.daily_operation = operation
                 reading.save()
+                log_audit(
+                    request.user,
+                    "pump_reading_created",
+                    reading,
+                    new_value={
+                        "pump": reading.pump_id,
+                        "opening": reading.opening_reading,
+                        "closing": reading.closing_reading,
+                        "liters": reading.liters_sold,
+                        "expected_sales": reading.expected_sales,
+                    },
+                )
                 messages.success(request, "Pump reading added.")
                 return redirect("daily_operation_detail", pk=operation.pk)
 
@@ -903,6 +1049,19 @@ def daily_operation_detail(request, pk):
                 collection = collection_form.save(commit=False)
                 collection.daily_operation = operation
                 collection.save()
+                log_audit(
+                    request.user,
+                    "cash_collection_saved",
+                    collection,
+                    new_value={
+                        "actual_cash": collection.actual_cash,
+                        "transfer": collection.gcash_or_bank_transfer,
+                        "card": collection.card_payments,
+                        "credit": collection.credit_sales,
+                        "shortage": collection.shortage,
+                        "overage": collection.overage,
+                    },
+                )
                 messages.success(request, "Cash collection saved.")
                 return redirect("daily_operation_detail", pk=operation.pk)
 
@@ -996,7 +1155,27 @@ def daily_operation_detail(request, pk):
                 )
             return redirect("daily_operation_detail", pk=operation.pk)
 
-    readings = operation.readings.select_related("pump", "pump__fuel_product").order_by("pump__name")
+        elif action == "archive_operation":
+            reason = request.POST.get("archive_reason", "")
+            try:
+                operation.archive(request.user, reason)
+            except ValidationError as error:
+                messages.error(
+                    request,
+                    error.message_dict if hasattr(error, "message_dict") else error.messages,
+                )
+                return redirect("daily_operation_detail", pk=operation.pk)
+            log_audit(
+                request.user,
+                "daily_operation_archived",
+                operation,
+                old_value={"status": operation.status},
+                new_value={"reason": operation.archive_reason},
+            )
+            messages.success(request, "Daily operation archived. Its financial records were preserved.")
+            return redirect("daily_operations")
+
+    readings = operation.readings.filter(is_archived=False).select_related("pump", "pump__fuel_product").order_by("pump__name")
 
     return render(
         request,
@@ -1022,7 +1201,8 @@ def pump_reading_edit(request, operation_pk, reading_pk):
             station__in=stations_for_user_with_permission(
                 request.user,
                 ENCODE_OPERATIONS,
-            )
+            ),
+            is_archived=False,
         ),
         pk=operation_pk,
     )
@@ -1030,6 +1210,7 @@ def pump_reading_edit(request, operation_pk, reading_pk):
         PumpReading,
         pk=reading_pk,
         daily_operation=operation,
+        is_archived=False,
     )
     if not operation.is_editable:
         messages.error(
@@ -1045,7 +1226,27 @@ def pump_reading_edit(request, operation_pk, reading_pk):
         daily_operation=operation,
     )
     if request.method == "POST" and form.is_valid():
-        form.save()
+        old_value = {
+            "pump": reading.pump_id,
+            "opening": reading.opening_reading,
+            "closing": reading.closing_reading,
+            "price": reading.price_per_liter,
+        }
+        reading = form.save()
+        log_audit(
+            request.user,
+            "pump_reading_edited",
+            reading,
+            old_value=old_value,
+            new_value={
+                "pump": reading.pump_id,
+                "opening": reading.opening_reading,
+                "closing": reading.closing_reading,
+                "price": reading.price_per_liter,
+                "liters": reading.liters_sold,
+                "expected_sales": reading.expected_sales,
+            },
+        )
         messages.success(request, "Pump reading corrected and collection variance recalculated.")
         return redirect("daily_operation_detail", pk=operation.pk)
 
@@ -1062,13 +1263,46 @@ def pump_reading_edit(request, operation_pk, reading_pk):
 
 
 @login_required
+@require_POST
+def pump_reading_archive(request, operation_pk, reading_pk):
+    operation = get_object_or_404(
+        DailyOperation.objects.filter(
+            station__in=stations_for_user_with_permission(request.user, ENCODE_OPERATIONS),
+            is_archived=False,
+        ),
+        pk=operation_pk,
+    )
+    reading = get_object_or_404(
+        PumpReading,
+        pk=reading_pk,
+        daily_operation=operation,
+        is_archived=False,
+    )
+    try:
+        reading.archive(request.user, request.POST.get("archive_reason", ""))
+    except ValidationError as error:
+        messages.error(
+            request,
+            error.message_dict if hasattr(error, "message_dict") else error.messages,
+        )
+    else:
+        log_audit(
+            request.user,
+            "pump_reading_archived",
+            reading,
+            old_value={"liters": reading.liters_sold, "expected_sales": reading.expected_sales},
+            new_value={"reason": reading.archive_reason},
+        )
+        messages.success(request, "Pump reading archived and collection variance recalculated.")
+    return redirect("daily_operation_detail", pk=operation.pk)
+
+
+@login_required
 def fuel_deliveries(request):
     station = permitted_current_station(request, MANAGE_DELIVERIES)
     deliveries = FuelDelivery.objects.filter(
-        station__in=stations_for_user_with_permission(
-            request.user,
-            MANAGE_DELIVERIES,
-        )
+        station=station,
+        is_archived=False,
     ).select_related(
         "station",
         "fuel_product",
@@ -1090,10 +1324,7 @@ def fuel_deliveries(request):
 @login_required
 def fuel_delivery_create(request):
     station = permitted_current_station(request, MANAGE_DELIVERIES)
-    allowed_stations = stations_for_user_with_permission(
-        request.user,
-        MANAGE_DELIVERIES,
-    )
+    allowed_stations = Station.objects.filter(pk=station.pk)
     if request.method == "POST":
         form = FuelDeliveryForm(request.POST, stations=allowed_stations)
         if form.is_valid():
@@ -1104,6 +1335,18 @@ def fuel_delivery_create(request):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
+                log_audit(
+                    request.user,
+                    "fuel_delivery_created",
+                    delivery,
+                    new_value={
+                        "station": delivery.station_id,
+                        "tank": delivery.tank_id,
+                        "liters": delivery.liters_delivered,
+                        "cost_per_liter": delivery.cost_per_liter,
+                        "total_cost": delivery.total_cost,
+                    },
+                )
                 messages.success(request, "Fuel delivery saved and tank inventory updated.")
                 return redirect("fuel_deliveries")
     else:
@@ -1123,13 +1366,84 @@ def fuel_delivery_create(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
+def fuel_delivery_edit(request, pk):
+    station = permitted_current_station(request, MANAGE_DELIVERIES)
+    delivery = get_object_or_404(FuelDelivery, pk=pk, station=station, is_archived=False)
+    old_value = {
+        "tank": delivery.tank_id,
+        "liters": delivery.liters_delivered,
+        "cost_per_liter": delivery.cost_per_liter,
+        "total_cost": delivery.total_cost,
+    }
+    form = FuelDeliveryForm(
+        request.POST or None,
+        instance=delivery,
+        stations=Station.objects.filter(pk=station.pk),
+    )
+    if request.method == "POST" and form.is_valid():
+        delivery = form.save(commit=False)
+        try:
+            delivery.save()
+        except ValidationError as error:
+            form.add_error(None, error)
+        else:
+            log_audit(
+                request.user,
+                "fuel_delivery_edited",
+                delivery,
+                old_value=old_value,
+                new_value={
+                    "tank": delivery.tank_id,
+                    "liters": delivery.liters_delivered,
+                    "cost_per_liter": delivery.cost_per_liter,
+                    "total_cost": delivery.total_cost,
+                },
+            )
+            messages.success(request, "Fuel delivery corrected and tank inventory recalculated.")
+            return redirect("fuel_deliveries")
+    return render(
+        request,
+        "frontend/fuel_delivery_form.html",
+        {"page_title": "Correct Fuel Refill", "form": form, "editing": True},
+    )
+
+
+@login_required
+@require_POST
+def fuel_delivery_archive(request, pk):
+    station = permitted_current_station(request, MANAGE_DELIVERIES)
+    delivery = get_object_or_404(FuelDelivery, pk=pk, station=station, is_archived=False)
+    old_value = {
+        "tank": delivery.tank_id,
+        "liters": delivery.liters_delivered,
+        "total_cost": delivery.total_cost,
+    }
+    try:
+        delivery.archive(request.user, request.POST.get("archive_reason", ""))
+    except ValidationError as error:
+        messages.error(
+            request,
+            error.message_dict if hasattr(error, "message_dict") else error.messages,
+        )
+    else:
+        log_audit(
+            request.user,
+            "fuel_delivery_archived",
+            delivery,
+            old_value=old_value,
+            new_value={"reason": delivery.archive_reason, "inventory_reversed": True},
+        )
+        messages.success(request, "Fuel delivery archived and its tank increase reversed.")
+    return redirect("fuel_deliveries")
+
+
+@login_required
 def expenses(request):
     station = permitted_current_station(request, MANAGE_EXPENSES)
     items = Expense.objects.filter(
-        station__in=stations_for_user_with_permission(
-            request.user,
-            MANAGE_EXPENSES,
-        )
+        station=station,
+        is_archived=False,
     ).select_related(
         "station",
         "category",
@@ -1147,18 +1461,98 @@ def expenses(request):
 
 
 @login_required
+def expense_categories(request):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    return render(
+        request,
+        "frontend/expense_categories.html",
+        {
+            "page_title": "Expense Categories",
+            "station": station,
+            "system_categories": ExpenseCategory.objects.filter(station__isnull=True),
+            "station_categories": station.expense_categories.all(),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def expense_category_edit(request, pk=None):
+    station = permitted_current_station(request, MANAGE_CATALOG)
+    category = (
+        get_object_or_404(ExpenseCategory, pk=pk, station=station)
+        if pk is not None
+        else ExpenseCategory(station=station)
+    )
+    old_value = (
+        {
+            "name": category.name,
+            "description": category.description,
+            "is_active": category.is_active,
+        }
+        if category.pk
+        else {}
+    )
+    form = ExpenseCategoryForm(
+        request.POST or None,
+        instance=category,
+        station=station,
+    )
+    form.instance.station = station
+    if request.method == "POST" and form.is_valid():
+        category = form.save(commit=False)
+        category.station = station
+        category.full_clean()
+        category.save()
+        log_audit(
+            request.user,
+            "expense_category_updated" if pk else "expense_category_created",
+            category,
+            old_value=old_value,
+            new_value={
+                "station": station.pk,
+                "name": category.name,
+                "description": category.description,
+                "is_active": category.is_active,
+            },
+        )
+        messages.success(request, "Expense category saved.")
+        return redirect("expense_categories")
+    return render(
+        request,
+        "frontend/settings/catalog_form.html",
+        {
+            "page_title": "Edit Expense Category" if pk else "Add Expense Category",
+            "station": station,
+            "form": form,
+            "entity_label": "Expense Category",
+            "submit_label": "Save Category",
+            "cancel_url": reverse("expense_categories"),
+        },
+    )
+
+
+@login_required
 def expense_create(request):
     station = permitted_current_station(request, MANAGE_EXPENSES)
-    allowed_stations = stations_for_user_with_permission(
-        request.user,
-        MANAGE_EXPENSES,
-    )
+    allowed_stations = Station.objects.filter(pk=station.pk)
     if request.method == "POST":
         form = ExpenseForm(request.POST, stations=allowed_stations)
         if form.is_valid():
             expense = form.save(commit=False)
             expense.encoded_by = request.user
             expense.save()
+            log_audit(
+                request.user,
+                "expense_created",
+                expense,
+                new_value={
+                    "station": expense.station_id,
+                    "category": expense.category_id,
+                    "date": expense.expense_date,
+                    "amount": expense.amount,
+                },
+            )
             messages.success(request, "Expense saved.")
             return redirect("expenses")
     else:
@@ -1178,6 +1572,72 @@ def expense_create(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
+def expense_edit(request, pk):
+    station = permitted_current_station(request, MANAGE_EXPENSES)
+    expense = get_object_or_404(Expense, pk=pk, station=station, is_archived=False)
+    old_value = {
+        "category": expense.category_id,
+        "date": expense.expense_date,
+        "amount": expense.amount,
+        "vendor": expense.vendor,
+        "reference": expense.reference_number,
+    }
+    form = ExpenseForm(
+        request.POST or None,
+        instance=expense,
+        stations=Station.objects.filter(pk=station.pk),
+    )
+    if request.method == "POST" and form.is_valid():
+        expense = form.save(commit=False)
+        expense.save()
+        log_audit(
+            request.user,
+            "expense_edited",
+            expense,
+            old_value=old_value,
+            new_value={
+                "category": expense.category_id,
+                "date": expense.expense_date,
+                "amount": expense.amount,
+                "vendor": expense.vendor,
+                "reference": expense.reference_number,
+            },
+        )
+        messages.success(request, "Expense corrected.")
+        return redirect("expenses")
+    return render(
+        request,
+        "frontend/expense_form.html",
+        {"page_title": "Correct Expense", "form": form, "editing": True},
+    )
+
+
+@login_required
+@require_POST
+def expense_archive(request, pk):
+    station = permitted_current_station(request, MANAGE_EXPENSES)
+    expense = get_object_or_404(Expense, pk=pk, station=station, is_archived=False)
+    try:
+        expense.archive(request.user, request.POST.get("archive_reason", ""))
+    except ValidationError as error:
+        messages.error(
+            request,
+            error.message_dict if hasattr(error, "message_dict") else error.messages,
+        )
+        return redirect("expenses")
+    log_audit(
+        request.user,
+        "expense_archived",
+        expense,
+        old_value={"amount": expense.amount, "category": expense.category_id},
+        new_value={"reason": expense.archive_reason},
+    )
+    messages.success(request, "Expense archived and removed from official reports.")
+    return redirect("expenses")
+
+
+@login_required
 def reports(request):
     station = permitted_current_station(request, VIEW_REPORTS)
     stations = stations_for_user_with_permission(request.user, VIEW_REPORTS)
@@ -1186,79 +1646,13 @@ def reports(request):
         station = stations.filter(pk=selected_station_id).first() or station
 
     today = timezone.localdate()
-    report_date_value = request.GET.get("date") or today.isoformat()
-    try:
-        report_date = date.fromisoformat(report_date_value)
-    except ValueError:
-        report_date = today
-
+    date_from, date_to = date_range(
+        request.GET.get("date_from") or request.GET.get("date") or today.isoformat(),
+        request.GET.get("date_to") or request.GET.get("date") or today.isoformat(),
+    )
     month_value = request.GET.get("month") or today.strftime("%Y-%m")
     month_start, month_end = month_bounds(month_value)
-
-    daily_operations_for_date = DailyOperation.objects.filter(
-        station=station,
-        status=DailyOperation.Status.APPROVED,
-        operation_date=report_date,
-    ).select_related("station", "encoded_by", "approved_by") if station else []
-
-    monthly_readings = PumpReading.objects.filter(
-        daily_operation__station=station,
-        daily_operation__status=DailyOperation.Status.APPROVED,
-        daily_operation__operation_date__gte=month_start,
-        daily_operation__operation_date__lt=month_end,
-    ) if station else []
-    monthly_expected_sales = sum((item.expected_sales for item in monthly_readings), ZERO)
-    monthly_liters = sum((item.liters_sold for item in monthly_readings), ZERO)
-    monthly_fuel_cost = sum(
-        (item.liters_sold * item.cost_per_liter for item in monthly_readings),
-        ZERO,
-    )
-    monthly_expenses = decimal_or_zero(
-        Expense.objects.filter(
-            station=station,
-            expense_date__gte=month_start,
-            expense_date__lt=month_end,
-        ).aggregate(total=Sum("amount"))["total"]
-    ) if station else ZERO
-    monthly_shortage = sum(
-        (
-            item.shortage
-            for item in CashCollection.objects.filter(
-                daily_operation__station=station,
-                daily_operation__status=DailyOperation.Status.APPROVED,
-                daily_operation__operation_date__gte=month_start,
-                daily_operation__operation_date__lt=month_end,
-            )
-        ),
-        ZERO,
-    ) if station else ZERO
-    monthly_overage = sum(
-        (
-            item.overage
-            for item in CashCollection.objects.filter(
-                daily_operation__station=station,
-                daily_operation__status=DailyOperation.Status.APPROVED,
-                daily_operation__operation_date__gte=month_start,
-                daily_operation__operation_date__lt=month_end,
-            )
-        ),
-        ZERO,
-    ) if station else ZERO
-    gross_profit = monthly_expected_sales - monthly_fuel_cost
-    net_profit = gross_profit - monthly_expenses
-
-    expense_categories = (
-        Expense.objects.filter(
-            station=station,
-            expense_date__gte=month_start,
-            expense_date__lt=month_end,
-        )
-        .values("category__name")
-        .annotate(total=Sum("amount"))
-        .order_by("category__name")
-        if station
-        else []
-    )
+    report = build_report(station, date_from, date_to, month_start, month_end)
 
     return render(
         request,
@@ -1267,19 +1661,9 @@ def reports(request):
             "page_title": "Reports",
             "station": station,
             "stations": stations,
-            "report_date": report_date,
+            "date_from": date_from,
+            "date_to": date_to,
             "month_value": month_start.strftime("%Y-%m"),
-            "daily_operations": daily_operations_for_date,
-            "expense_categories": expense_categories,
-            "summary": {
-                "monthly_liters": monthly_liters,
-                "monthly_expected_sales": monthly_expected_sales,
-                "monthly_fuel_cost": monthly_fuel_cost,
-                "gross_profit": gross_profit,
-                "monthly_expenses": monthly_expenses,
-                "net_profit": net_profit,
-                "monthly_shortage": monthly_shortage,
-                "monthly_overage": monthly_overage,
-            },
+            **report,
         },
     )

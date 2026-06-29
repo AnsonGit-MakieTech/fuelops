@@ -92,7 +92,22 @@
                     <td class="amount">PHP {{ reading.price_per_liter|floatformat:2 }}</td>
                     <td class="amount">PHP {{ reading.cost_per_liter|floatformat:2 }}</td>
                     <td class="amount">PHP {{ reading.expected_sales|floatformat:2 }}</td>
-                    {% if is_editable %}<td><a class="btn-icon" href="{% url 'pump_reading_edit' operation.pk reading.pk %}" aria-label="Correct {{ reading.pump.name }} reading" title="Correct reading"><i data-lucide="pencil"></i></a></td>{% endif %}
+                    {% if is_editable %}
+                      <td>
+                        <div class="button-row">
+                          <a class="btn-icon" href="{% url 'pump_reading_edit' operation.pk reading.pk %}" aria-label="Correct {{ reading.pump.name }} reading" title="Correct reading"><i data-lucide="pencil"></i></a>
+                          <details class="row-action-menu">
+                            <summary class="btn-icon text-danger" aria-label="Archive reading" title="Archive reading"><i data-lucide="archive"></i></summary>
+                            <form class="archive-inline-form" method="post" action="{% url 'pump_reading_archive' operation.pk reading.pk %}">
+                              {% csrf_token %}
+                              <label for="reading-archive-{{ reading.pk }}">Archive reason</label>
+                              <textarea class="form-control" id="reading-archive-{{ reading.pk }}" name="archive_reason" rows="2" required></textarea>
+                              <button class="btn-danger" type="submit" data-confirm-title="Archive pump reading?" data-confirm-message="The reading stays in audit history but is removed from operation totals." data-confirm-label="Archive" data-confirm-variant="btn-danger"><i data-lucide="archive"></i> Archive</button>
+                            </form>
+                          </details>
+                        </div>
+                      </td>
+                    {% endif %}
                   </tr>
                 {% endfor %}
               </tbody>
@@ -167,7 +182,7 @@
           <h3>Review Action</h3>
         </div>
         {% if is_editable %}
-          <form method="post">
+          <form method="post" style="margin-bottom: 16px;">
             {% csrf_token %}
             <input type="hidden" name="action" value="submit">
             <button
@@ -178,6 +193,15 @@
               data-confirm-label="Submit"
               data-confirm-variant="btn-primary"
             ><i data-lucide="send"></i> Submit</button>
+          </form>
+          <form class="review-reason-form" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="archive_operation">
+            <div class="form-field">
+              <label for="operation_archive_reason">Archive reason</label>
+              <textarea class="form-control" id="operation_archive_reason" name="archive_reason" rows="3" required></textarea>
+            </div>
+            <button class="btn-danger" type="submit" data-confirm-title="Archive daily operation?" data-confirm-message="The draft remains in audit history but is removed from active operations and official totals." data-confirm-label="Archive" data-confirm-variant="btn-danger"><i data-lucide="archive"></i> Archive Draft</button>
           </form>
         {% elif operation.status == "submitted" and can_approve %}
           <div class="review-action-stack">

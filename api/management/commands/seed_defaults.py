@@ -50,7 +50,7 @@ class Command(BaseCommand):
         ]
 
         for name in categories:
-            ExpenseCategory.objects.get_or_create(name=name)
+            ExpenseCategory.objects.get_or_create(station=None, name=name)
             self.stdout.write(f"expense category - {name}")
 
     def seed_station_defaults(self, station_name):

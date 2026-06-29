@@ -23,6 +23,7 @@
             <th>Cost/L</th>
             <th>Total Cost</th>
             <th>Invoice</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -37,6 +38,20 @@
               <td class="amount">PHP {{ delivery.cost_per_liter|floatformat:2 }}</td>
               <td class="amount">PHP {{ delivery.total_cost|floatformat:2 }}</td>
               <td class="mono">{{ delivery.invoice_number|default:"-" }}</td>
+              <td>
+                <div class="button-row">
+                  <a class="btn-icon" href="{% url 'fuel_delivery_edit' delivery.pk %}" aria-label="Correct delivery" title="Correct delivery"><i data-lucide="pencil"></i></a>
+                  <details class="row-action-menu">
+                    <summary class="btn-icon text-danger" aria-label="Archive delivery" title="Archive delivery"><i data-lucide="archive"></i></summary>
+                    <form class="archive-inline-form" method="post" action="{% url 'fuel_delivery_archive' delivery.pk %}">
+                      {% csrf_token %}
+                      <label for="delivery-archive-{{ delivery.pk }}">Archive reason</label>
+                      <textarea class="form-control" id="delivery-archive-{{ delivery.pk }}" name="archive_reason" rows="2" required></textarea>
+                      <button class="btn-danger" type="submit" data-confirm-title="Archive fuel delivery?" data-confirm-message="This preserves the record and reverses its tank inventory increase." data-confirm-label="Archive" data-confirm-variant="btn-danger"><i data-lucide="archive"></i> Archive</button>
+                    </form>
+                  </details>
+                </div>
+              </td>
             </tr>
           {% endfor %}
         </tbody>

@@ -3,8 +3,8 @@
 {% block content %}
   <div class="page-head">
     <div>
-      <h2>Add Fuel Refill</h2>
-      <p>Fuel deliveries update tank stock after saving.</p>
+      <h2>{% if editing %}Correct Fuel Refill{% else %}Add Fuel Refill{% endif %}</h2>
+      <p>{% if editing %}Corrections apply the inventory difference to the affected tanks.{% else %}Fuel deliveries update tank stock after saving.{% endif %}</p>
     </div>
   </div>
 
@@ -18,11 +18,11 @@
         <button
           class="btn-accent"
           type="submit"
-          data-confirm-title="Save fuel refill?"
-          data-confirm-message="This will save the supplier delivery and increase the selected tank inventory."
+          data-confirm-title="{% if editing %}Save delivery correction?{% else %}Save fuel refill?{% endif %}"
+          data-confirm-message="{% if editing %}This recalculates tank inventory from the delivery changes.{% else %}This will save the supplier delivery and increase the selected tank inventory.{% endif %}"
           data-confirm-label="Save Refill"
           data-confirm-variant="btn-accent"
-        ><i data-lucide="save"></i> Save Refill</button>
+        ><i data-lucide="save"></i> {% if editing %}Save Correction{% else %}Save Refill{% endif %}</button>
         <a class="btn-ghost" href="{% url 'fuel_deliveries' %}">Cancel</a>
       </div>
     </form>

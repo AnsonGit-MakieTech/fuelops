@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Expense Categories</h2>
+      <p>{{ station.name }} / expense classification</p>
+    </div>
+    <div class="button-row">
+      <a class="btn-ghost" href="{% url 'expenses' %}"><i data-lucide="arrow-left"></i> Expenses</a>
+      <a class="btn-accent" href="{% url 'expense_category_create' %}"><i data-lucide="plus"></i> Add Category</a>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table class="table mobile-stack-table">
+      <thead>
+        <tr><th>Category</th><th>Scope</th><th>Description</th><th>Status</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        {% for category in station_categories %}
+          <tr>
+            <td data-label="Category"><strong>{{ category.name }}</strong></td>
+            <td data-label="Scope"><span class="badge badge-info">{{ station.name }}</span></td>
+            <td data-label="Description">{{ category.description|default:"-" }}</td>
+            <td data-label="Status"><span class="badge {% if category.is_active %}badge-success{% else %}badge-warning{% endif %}">{% if category.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+            <td data-label="Action"><a class="btn-icon" href="{% url 'expense_category_edit' category.pk %}" aria-label="Edit {{ category.name }}" title="Edit category"><i data-lucide="pencil"></i></a></td>
+          </tr>
+        {% endfor %}
+        {% for category in system_categories %}
+          <tr>
+            <td data-label="Category"><strong>{{ category.name }}</strong></td>
+            <td data-label="Scope"><span class="badge badge-info">System</span></td>
+            <td data-label="Description">{{ category.description|default:"-" }}</td>
+            <td data-label="Status"><span class="badge {% if category.is_active %}badge-success{% else %}badge-warning{% endif %}">{% if category.is_active %}Active{% else %}Inactive{% endif %}</span></td>
+            <td data-label="Action"><span class="table-secondary">-</span></td>
+          </tr>
+        {% empty %}
+          {% if not station_categories %}
+            <tr><td colspan="5"><div class="empty-state">No expense categories configured.</div></td></tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

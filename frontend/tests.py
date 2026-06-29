@@ -16,6 +16,8 @@ from api.models import (
     AuditLog,
     CashCollection,
     DailyOperation,
+    ExpenseCategory,
+    FuelDelivery,
     FuelProduct,
     InventoryAdjustment,
     Pump,
@@ -703,3 +705,199 @@ class RegistrationAndAccessTests(TestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "Monthly Net Profit")
         self.assertNotContains(response, f'href="{reverse("daily_operations")}"')
+
+    def test_team_role_suspension_reactivation_and_last_owner_protection(self):
+        owner, station = self.create_owner_station()
+        staff = self.create_station_member(
+            station,
+            StationMembership.Role.STAFF,
+            "lifecycle-staff@example.com",
+        )
+        owner_membership = StationMembership.objects.get(station=station, user=owner)
+        staff_membership = StationMembership.objects.get(station=station, user=staff)
+        self.client.force_login(owner)
+
+        response = self.client.post(
+            reverse("team_members"),
+            {"action": "change_role", "membership_id": owner_membership.pk, "role": "manager"},
+            follow=True,
+        )
+        owner_membership.refresh_from_db()
+        self.assertEqual(owner_membership.role, StationMembership.Role.OWNER)
+        self.assertContains(response, "at least one active owner", status_code=200)
+
+        self.client.post(
+            reverse("team_members"),
+            {"action": "change_role", "membership_id": staff_membership.pk, "role": "manager"},
+        )
+        self.client.post(
+            reverse("team_members"),
+            {"action": "suspend_member", "membership_id": staff_membership.pk},
+        )
+        staff_membership.refresh_from_db()
+        self.assertEqual(staff_membership.status, StationMembership.Status.SUSPENDED)
+        self.client.post(
+            reverse("team_members"),
+            {"action": "reactivate_member", "membership_id": staff_membership.pk},
+        )
+        staff_membership.refresh_from_db()
+        self.assertEqual(staff_membership.role, StationMembership.Role.MANAGER)
+        self.assertEqual(staff_membership.status, StationMembership.Status.ACTIVE)
+        self.assertTrue(AuditLog.objects.filter(action="station_member_reactivated").exists())
+
+    def test_active_station_switch_is_session_scoped_and_tenant_checked(self):
+        owner, first_station = self.create_owner_station()
+        second_station = Station.objects.create(name="Second Managed Station")
+        StationMembership.objects.create(
+            station=second_station,
+            user=owner,
+            role=StationMembership.Role.MANAGER,
+        )
+        private_owner, private_station = self.create_owner_station(
+            username="private-owner@example.com",
+            station_name="Private Station",
+        )
+        self.assertNotEqual(private_owner, owner)
+        self.client.force_login(owner)
+
+        response = self.client.post(
+            reverse("switch_station"),
+            {"station_id": second_station.pk, "next": reverse("dashboard")},
+        )
+        self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.context["station"], second_station)
+        self.assertEqual(self.client.session["active_station_id"], second_station.pk)
+
+        response = self.client.post(
+            reverse("switch_station"),
+            {"station_id": private_station.pk, "next": reverse("dashboard")},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.session["active_station_id"], second_station.pk)
+        self.assertNotEqual(first_station, second_station)
+
+    def test_report_product_delivery_movement_and_api_contract(self):
+        owner, station = self.create_owner_station()
+        product, tank, pump = self.create_product_chain(station)
+        supplier = Supplier.objects.create(station=station, name="Report Supplier")
+        month_start = timezone.localdate().replace(day=1)
+        operation = DailyOperation.objects.create(
+            station=station,
+            operation_date=month_start,
+            encoded_by=owner,
+        )
+        PumpReading.objects.create(
+            daily_operation=operation,
+            pump=pump,
+            opening_reading="100.000",
+            closing_reading="110.000",
+            price_per_liter="60.00",
+        )
+        CashCollection.objects.create(daily_operation=operation, actual_cash="600.00")
+        operation.submit()
+        operation.approve(owner)
+        FuelDelivery.objects.create(
+            station=station,
+            fuel_product=product,
+            tank=tank,
+            supplier=supplier,
+            delivery_date=month_start,
+            liters_delivered="100.000",
+            cost_per_liter="50.00",
+            received_by=owner,
+            invoice_number="INV-100",
+        )
+        self.client.force_login(owner)
+
+        response = self.client.get(
+            reverse("reports"),
+            {
+                "date_from": month_start.isoformat(),
+                "date_to": month_start.isoformat(),
+                "month": month_start.strftime("%Y-%m"),
+            },
+        )
+        self.assertEqual(response.context["product_totals"][0]["liters"], Decimal("10.000"))
+        self.assertEqual(response.context["summary"]["delivery_cost"], Decimal("5000.00"))
+        self.assertEqual(response.context["inventory_movements"][0]["reference"], "INV-100")
+
+        response = self.client.get(
+            reverse("api_monthly_report"),
+            {"month": month_start.strftime("%Y-%m")},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["products"][0]["liters"], "10.000")
+        response = self.client.post(
+            reverse("api_calculate_pump_reading"),
+            data=json.dumps(
+                {
+                    "opening_reading": "100.000",
+                    "closing_reading": "110.000",
+                    "price_per_liter": "60.00",
+                    "cost_per_liter": "55.00",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json()["gross_profit"], "50.00")
+
+    def test_expense_categories_are_station_scoped_and_owner_managed(self):
+        owner, station = self.create_owner_station()
+        system_category = ExpenseCategory.objects.create(name="Utilities")
+        _, other_station = self.create_owner_station(
+            username="category-owner@example.com",
+            station_name="Category Other Station",
+        )
+        other_category = ExpenseCategory.objects.create(
+            station=other_station,
+            name="Other Station Only",
+        )
+        self.client.force_login(owner)
+
+        response = self.client.post(
+            reverse("expense_category_create"),
+            {
+                "name": "Generator Maintenance",
+                "description": "Scheduled generator service",
+                "is_active": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("expense_categories"), fetch_redirect_response=False)
+        station_category = ExpenseCategory.objects.get(
+            station=station,
+            name="Generator Maintenance",
+        )
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="expense_category_created",
+                object_id=str(station_category.pk),
+            ).exists()
+        )
+
+        response = self.client.get(reverse("expense_create"))
+        categories = response.context["form"].fields["category"].queryset
+        self.assertIn(system_category, categories)
+        self.assertIn(station_category, categories)
+        self.assertNotIn(other_category, categories)
+
+        response = self.client.post(
+            reverse("expense_create"),
+            {
+                "station": station.pk,
+                "category": other_category.pk,
+                "expense_date": timezone.localdate().isoformat(),
+                "amount": "100.00",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Select a valid choice")
+        self.assertFalse(station.expenses.exists())
+
+        staff = self.create_station_member(
+            station,
+            StationMembership.Role.STAFF,
+            "category-staff@example.com",
+        )
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get(reverse("expense_categories")).status_code, 403)

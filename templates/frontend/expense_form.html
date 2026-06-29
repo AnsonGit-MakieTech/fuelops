@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-head">
     <div>
-      <h2>Add Expense</h2>
+      <h2>{% if editing %}Correct Expense{% else %}Add Expense{% endif %}</h2>
       <p>Expense records feed monthly profitability reports.</p>
     </div>
   </div>
@@ -18,11 +18,11 @@
         <button
           class="btn-accent"
           type="submit"
-          data-confirm-title="Save expense?"
-          data-confirm-message="This will add the expense to station costs and monthly profit reports."
+          data-confirm-title="{% if editing %}Save expense correction?{% else %}Save expense?{% endif %}"
+          data-confirm-message="{% if editing %}This updates the expense used by official profit reports.{% else %}This will add the expense to station costs and monthly profit reports.{% endif %}"
           data-confirm-label="Save Expense"
           data-confirm-variant="btn-accent"
-        ><i data-lucide="save"></i> Save Expense</button>
+        ><i data-lucide="save"></i> {% if editing %}Save Correction{% else %}Save Expense{% endif %}</button>
         <a class="btn-ghost" href="{% url 'expenses' %}">Cancel</a>
       </div>
     </form>

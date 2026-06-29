@@ -1,6 +1,6 @@
 from .guides import GUIDE_VERSION, ROUTE_GUIDES
 from .models import GuidedTourProgress
-from .access import current_station_for_user, permissions_for_user
+from .access import current_station_for_request, permissions_for_user, stations_for_user
 
 
 def guided_tour(request):
@@ -29,7 +29,9 @@ def guided_tour(request):
 def station_permissions(request):
     if not request.user.is_authenticated:
         return {"station_permissions": {}}
-    station = current_station_for_user(request.user)
+    station = current_station_for_request(request)
     return {
+        "active_station": station,
+        "available_stations": stations_for_user(request.user),
         "station_permissions": permissions_for_user(request.user, station) if station else {},
     }

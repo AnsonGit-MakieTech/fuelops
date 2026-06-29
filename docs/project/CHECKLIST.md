@@ -50,13 +50,16 @@ DONE - Prevent approved-operation changes at the model and admin layers and add 
 DONE - Add rejection notes input and correction workflow.
 DONE - Recalculate collection variance when pump readings change.
 DONE - Snapshot fuel cost on each pump reading and exclude draft or rejected operations from official profit reports.
-TODO - Add edit and controlled archive flows for readings, deliveries, expenses, and other financial records.
-TODO - Complete audit logs for approvals, rejections, inventory changes, edits, archives, and access changes.
-TODO - Add team member role changes, suspension, reactivation, and last-owner protection.
-TODO - Add active-station switching for users assigned to multiple stations.
-TODO - Add report date ranges, per-product totals, delivery cost, and inventory movement reporting.
-TODO - Add the planned dashboard and reporting API endpoints or remove them from the MVP contract.
-TODO - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
+DONE - Add edit and controlled archive flows for readings, deliveries, expenses, and other financial records.
+DONE - Complete audit logs for approvals, rejections, inventory changes, edits, archives, and access changes.
+DONE - Add team member role changes, suspension, reactivation, and last-owner protection.
+DONE - Add active-station switching for users assigned to multiple stations.
+DONE - Add report date ranges, per-product totals, delivery cost, and inventory movement reporting.
+DONE - Add the planned dashboard and reporting API endpoints or remove them from the MVP contract.
+DONE - Add station-scoped expense category management from the Expenses page.
+DONE - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
 TODO - Run manual end-to-end QA and validate calculations with one real station.
 DONE - Run multi-product, supplier isolation, inventory adjustment, role permission, migration, and Django verification checks.
 DONE - Run operation lifecycle, correction, reopen, variance refresh, historical cost, official report, migration, and Django verification checks.
+DONE - Run archive reversal, audit, team lifecycle, station switching, expanded report, API, migration, and 37-test verification checks.
+DONE - Run expense category tenancy, permission, migration, and 38-test verification checks.

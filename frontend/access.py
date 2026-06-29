@@ -83,10 +83,26 @@ def stations_for_user_with_permission(user, permission):
     ).distinct()
 
 
-def current_station_for_user(user):
+def current_station_for_user(user, preferred_station_id=None):
     stations = stations_for_user(user)
+    if preferred_station_id:
+        preferred = stations.filter(pk=preferred_station_id).first()
+        if preferred:
+            return preferred
     owned_station = stations.filter(owner=user).first()
     return owned_station or stations.first()
+
+
+def current_station_for_request(request):
+    station = current_station_for_user(
+        request.user,
+        request.session.get("active_station_id"),
+    )
+    if station:
+        request.session["active_station_id"] = station.pk
+    else:
+        request.session.pop("active_station_id", None)
+    return station
 
 
 def membership_for_user(user, station):

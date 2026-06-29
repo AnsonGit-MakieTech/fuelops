@@ -6,7 +6,12 @@
       <h2>Expenses</h2>
       <p>Operating costs for salaries, bills, maintenance, renewals, and supplies.</p>
     </div>
-    <a class="btn-accent" href="{% url 'expense_create' %}" data-guide-target="expense-create"><i data-lucide="plus"></i> Add Expense</a>
+    <div class="button-row">
+      {% if station_permissions.manage_catalog %}
+        <a class="btn-ghost" href="{% url 'expense_categories' %}"><i data-lucide="tags"></i> Categories</a>
+      {% endif %}
+      <a class="btn-accent" href="{% url 'expense_create' %}" data-guide-target="expense-create"><i data-lucide="plus"></i> Add Expense</a>
+    </div>
   </div>
 
   {% if expenses %}
@@ -21,6 +26,7 @@
             <th>Vendor</th>
             <th>Reference</th>
             <th>Paid By</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -33,6 +39,20 @@
               <td>{{ expense.vendor|default:"-" }}</td>
               <td class="mono">{{ expense.reference_number|default:"-" }}</td>
               <td>{{ expense.paid_by|default:"-" }}</td>
+              <td>
+                <div class="button-row">
+                  <a class="btn-icon" href="{% url 'expense_edit' expense.pk %}" aria-label="Correct expense" title="Correct expense"><i data-lucide="pencil"></i></a>
+                  <details class="row-action-menu">
+                    <summary class="btn-icon text-danger" aria-label="Archive expense" title="Archive expense"><i data-lucide="archive"></i></summary>
+                    <form class="archive-inline-form" method="post" action="{% url 'expense_archive' expense.pk %}">
+                      {% csrf_token %}
+                      <label for="expense-archive-{{ expense.pk }}">Archive reason</label>
+                      <textarea class="form-control" id="expense-archive-{{ expense.pk }}" name="archive_reason" rows="2" required></textarea>
+                      <button class="btn-danger" type="submit" data-confirm-title="Archive expense?" data-confirm-message="This preserves the record but removes it from official expense and profit totals." data-confirm-label="Archive" data-confirm-variant="btn-danger"><i data-lucide="archive"></i> Archive</button>
+                    </form>
+                  </details>
+                </div>
+              </td>
             </tr>
           {% endfor %}
         </tbody>

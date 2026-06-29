@@ -23,13 +23,13 @@ from .models import (
 class PumpReadingInline(admin.TabularInline):
     model = PumpReading
     extra = 0
-    readonly_fields = ("liters_sold", "cost_per_liter", "expected_sales")
+    readonly_fields = tuple(field.name for field in PumpReading._meta.fields)
 
     def has_add_permission(self, request, obj=None):
-        return not obj or obj.is_editable
+        return False
 
     def has_delete_permission(self, request, obj=None):
-        return not obj or obj.is_editable
+        return False
 
     def get_readonly_fields(self, request, obj=None):
         if obj and not obj.is_editable:
@@ -41,10 +41,10 @@ class CashCollectionInline(admin.StackedInline):
     model = CashCollection
     extra = 0
     max_num = 1
-    readonly_fields = ("expected_sales", "shortage", "overage")
+    readonly_fields = tuple(field.name for field in CashCollection._meta.fields)
 
     def has_add_permission(self, request, obj=None):
-        return not obj or obj.is_editable
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return not obj or obj.is_editable
@@ -67,6 +67,45 @@ class StationMembershipAdmin(admin.ModelAdmin):
     list_display = ("station", "user", "role", "status", "joined_at")
     list_filter = ("station", "role", "status")
     search_fields = ("station__name", "user__username", "user__email")
+
+    def get_readonly_fields(self, request, obj=None):
+        if (
+            obj
+            and obj.role == StationMembership.Role.OWNER
+            and obj.status == StationMembership.Status.ACTIVE
+            and obj.station.memberships.filter(
+                role=StationMembership.Role.OWNER,
+                status=StationMembership.Status.ACTIVE,
+            ).count() <= 1
+        ):
+            return ("station", "user", "role", "status")
+        return ()
+
+    def save_model(self, request, obj, form, change):
+        old_value = {}
+        if change:
+            previous = StationMembership.objects.get(pk=obj.pk)
+            old_value = {"role": previous.role, "status": previous.status}
+        super().save_model(request, obj, form, change)
+        if change and old_value != {"role": obj.role, "status": obj.status}:
+            AuditLog.objects.create(
+                user=request.user,
+                action="station_member_access_changed",
+                model_name="StationMembership",
+                object_id=str(obj.pk),
+                old_value=old_value,
+                new_value={"role": obj.role, "status": obj.status, "source": "admin"},
+            )
+            if obj.station.owner_id == obj.user_id and (
+                obj.role != StationMembership.Role.OWNER
+                or obj.status != StationMembership.Status.ACTIVE
+            ):
+                replacement = obj.station.memberships.filter(
+                    role=StationMembership.Role.OWNER,
+                    status=StationMembership.Status.ACTIVE,
+                ).exclude(pk=obj.pk).select_related("user").first()
+                obj.station.owner = replacement.user
+                obj.station.save(update_fields=["owner", "updated_at"])
 
 
 @admin.register(StationInvitation)
@@ -146,20 +185,26 @@ class DailyOperationAdmin(admin.ModelAdmin):
         "reopened_by",
         "reopened_at",
         "reopen_reason",
+        "is_archived",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
+        "station",
+        "operation_date",
+        "encoded_by",
+        "notes",
     )
     inlines = [PumpReadingInline, CashCollectionInline]
     actions = ("approve_operations", "submit_operations", "reopen_operations")
 
+    def has_add_permission(self, request):
+        return False
+
     def get_readonly_fields(self, request, obj=None):
-        fields = list(self.readonly_fields)
-        if obj and not obj.is_editable:
-            fields.extend(["station", "operation_date", "encoded_by", "notes"])
-        return tuple(dict.fromkeys(fields))
+        return self.readonly_fields
 
     def has_delete_permission(self, request, obj=None):
-        if obj and not obj.is_editable:
-            return False
-        return super().has_delete_permission(request, obj)
+        return False
 
     @admin.action(description="Submit selected daily operations")
     def submit_operations(self, request, queryset):
@@ -168,6 +213,14 @@ class DailyOperationAdmin(admin.ModelAdmin):
                 operation.submit()
             except ValidationError as error:
                 self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_submitted",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status, "source": "admin"},
+                )
 
     @admin.action(description="Approve selected daily operations")
     def approve_operations(self, request, queryset):
@@ -176,6 +229,14 @@ class DailyOperationAdmin(admin.ModelAdmin):
                 operation.approve(request.user)
             except ValidationError as error:
                 self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_approved",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status, "source": "admin"},
+                )
 
     @admin.action(description="Reopen selected approved operations")
     def reopen_operations(self, request, queryset):
@@ -184,6 +245,14 @@ class DailyOperationAdmin(admin.ModelAdmin):
                 operation.reopen(request.user, "Reopened from Django admin.")
             except ValidationError as error:
                 self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_reopened",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status, "source": "admin"},
+                )
 
 
 @admin.register(PumpReading)
@@ -198,9 +267,27 @@ class PumpReadingAdmin(admin.ModelAdmin):
         "cost_per_liter",
         "expected_sales",
     )
-    list_filter = ("daily_operation__station", "pump__fuel_product")
+    list_filter = ("daily_operation__station", "pump__fuel_product", "is_archived")
     search_fields = ("daily_operation__station__name", "pump__name", "pump__meter_number")
-    readonly_fields = ("liters_sold", "expected_sales")
+    readonly_fields = (
+        "liters_sold",
+        "expected_sales",
+        "is_archived",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(CashCollection)
@@ -219,6 +306,17 @@ class CashCollectionAdmin(admin.ModelAdmin):
     search_fields = ("daily_operation__station__name",)
     readonly_fields = ("expected_sales", "shortage", "overage")
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(FuelDelivery)
 class FuelDeliveryAdmin(admin.ModelAdmin):
@@ -233,16 +331,33 @@ class FuelDeliveryAdmin(admin.ModelAdmin):
         "total_cost",
         "invoice_number",
     )
-    list_filter = ("station", "fuel_product", "supplier", "delivery_date")
+    list_filter = ("station", "fuel_product", "supplier", "delivery_date", "is_archived")
     search_fields = ("station__name", "supplier__name", "invoice_number")
-    readonly_fields = ("total_cost",)
+    readonly_fields = (
+        "total_cost",
+        "is_archived",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ExpenseCategory)
 class ExpenseCategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "is_active")
-    list_filter = ("is_active",)
-    search_fields = ("name",)
+    list_display = ("name", "station", "is_active")
+    list_filter = ("station", "is_active")
+    search_fields = ("name", "station__name")
 
 
 @admin.register(Expense)
@@ -256,8 +371,20 @@ class ExpenseAdmin(admin.ModelAdmin):
         "reference_number",
         "encoded_by",
     )
-    list_filter = ("station", "category", "expense_date")
+    list_filter = ("station", "category", "expense_date", "is_archived")
     search_fields = ("station__name", "vendor", "reference_number", "encoded_by__username")
+    readonly_fields = ("is_archived", "archived_at", "archived_by", "archive_reason")
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(InventoryAdjustment)
@@ -277,10 +404,32 @@ class InventoryAdjustmentAdmin(admin.ModelAdmin):
     readonly_fields = ("applied_at",)
     actions = ("apply_adjustments",)
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
     @admin.action(description="Apply selected inventory adjustments")
     def apply_adjustments(self, request, queryset):
         for adjustment in queryset:
+            was_applied = bool(adjustment.applied_at)
             adjustment.apply(request.user)
+            if not was_applied:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="inventory_adjustment_applied",
+                    model_name="InventoryAdjustment",
+                    object_id=str(adjustment.pk),
+                    new_value={
+                        "tank": adjustment.tank_id,
+                        "type": adjustment.adjustment_type,
+                        "liters": str(adjustment.liters),
+                        "source": "admin",
+                    },
+                )
 
 
 @admin.register(AuditLog)

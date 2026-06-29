@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 
@@ -33,6 +33,29 @@ class TimeStampedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class ArchivableModel(TimeStampedModel):
+    is_archived = models.BooleanField(default=False)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="%(app_label)s_%(class)s_archives",
+        null=True,
+        blank=True,
+    )
+    archive_reason = models.TextField(blank=True)
+
+    class Meta:
+        abstract = True
+
+    @staticmethod
+    def clean_archive_reason(reason):
+        reason = (reason or "").strip()
+        if not reason:
+            raise ValidationError({"archive_reason": "An archive reason is required."})
+        return reason
 
 
 class Station(TimeStampedModel):
@@ -326,7 +349,7 @@ class Supplier(TimeStampedModel):
         return f"{self.station} - {self.name}"
 
 
-class DailyOperation(TimeStampedModel):
+class DailyOperation(ArchivableModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
@@ -374,17 +397,22 @@ class DailyOperation(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["station", "operation_date"],
+                condition=Q(is_archived=False),
                 name="unique_daily_operation_per_station_date",
             )
         ]
 
     @property
     def total_liters_sold(self):
-        return liters(self.readings.aggregate(total=Sum("liters_sold"))["total"])
+        return liters(
+            self.readings.filter(is_archived=False).aggregate(total=Sum("liters_sold"))["total"]
+        )
 
     @property
     def total_expected_sales(self):
-        return money(self.readings.aggregate(total=Sum("expected_sales"))["total"])
+        return money(
+            self.readings.filter(is_archived=False).aggregate(total=Sum("expected_sales"))["total"]
+        )
 
     @property
     def total_collections(self):
@@ -406,7 +434,10 @@ class DailyOperation(TimeStampedModel):
 
     @property
     def is_editable(self):
-        return self.status in {self.Status.DRAFT, self.Status.REJECTED}
+        return not self.is_archived and self.status in {
+            self.Status.DRAFT,
+            self.Status.REJECTED,
+        }
 
     def save(self, *args, **kwargs):
         transition_allowed = getattr(self, "_transition_allowed", False)
@@ -415,6 +446,8 @@ class DailyOperation(TimeStampedModel):
 
         if self.pk and not transition_allowed:
             previous = DailyOperation.objects.get(pk=self.pk)
+            if previous.is_archived:
+                raise ValidationError("Archived operations cannot be changed.")
             if previous.status != self.status:
                 raise ValidationError(
                     {"status": "Use the operation workflow actions to change status."}
@@ -457,7 +490,7 @@ class DailyOperation(TimeStampedModel):
 
     def validate_ready_for_review(self):
         errors = {}
-        if not self.readings.exists():
+        if not self.readings.filter(is_archived=False).exists():
             errors["readings"] = "Add at least one pump reading before submission."
         if not hasattr(self, "cash_collection"):
             errors["collection"] = "Save the cash collection before submission."
@@ -483,7 +516,7 @@ class DailyOperation(TimeStampedModel):
         self.validate_ready_for_review()
 
         with transaction.atomic():
-            for reading in self.readings.select_related("pump__tank").select_for_update():
+            for reading in self.readings.filter(is_archived=False).select_related("pump__tank").select_for_update():
                 tank = reading.pump.tank
                 tank.current_volume_liters = liters(
                     tank.current_volume_liters - reading.liters_sold
@@ -533,7 +566,7 @@ class DailyOperation(TimeStampedModel):
             raise ValidationError({"reopen_reason": "A reopen reason is required."})
 
         with transaction.atomic():
-            for reading in self.readings.select_related("pump__tank").select_for_update():
+            for reading in self.readings.filter(is_archived=False).select_related("pump__tank").select_for_update():
                 tank = Tank.objects.select_for_update().get(pk=reading.pump.tank_id)
                 tank.current_volume_liters = liters(
                     tank.current_volume_liters + reading.liters_sold
@@ -559,11 +592,30 @@ class DailyOperation(TimeStampedModel):
                 ]
             )
 
+    def archive(self, user, reason):
+        if not self.is_editable:
+            raise ValidationError(
+                "Only draft or rejected operations can be archived. Reopen an approved operation first."
+            )
+        reason = self.clean_archive_reason(reason)
+        archived_at = timezone.now()
+        DailyOperation.objects.filter(pk=self.pk, is_archived=False).update(
+            is_archived=True,
+            archived_at=archived_at,
+            archived_by=user,
+            archive_reason=reason,
+            updated_at=archived_at,
+        )
+        self.is_archived = True
+        self.archived_at = archived_at
+        self.archived_by = user
+        self.archive_reason = reason
+
     def __str__(self):
         return f"{self.station} - {self.operation_date}"
 
 
-class PumpReading(TimeStampedModel):
+class PumpReading(ArchivableModel):
     daily_operation = models.ForeignKey(
         DailyOperation,
         on_delete=models.CASCADE,
@@ -614,6 +666,7 @@ class PumpReading(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["daily_operation", "pump"],
+                condition=Q(is_archived=False),
                 name="unique_pump_reading_per_operation",
             )
         ]
@@ -624,6 +677,9 @@ class PumpReading(TimeStampedModel):
 
     def clean(self):
         errors = {}
+
+        if self.is_archived:
+            errors["daily_operation"] = "Archived readings cannot be changed."
 
         if self.daily_operation_id and not self.daily_operation.is_editable:
             errors["daily_operation"] = (
@@ -662,6 +718,29 @@ class PumpReading(TimeStampedModel):
         if hasattr(operation, "cash_collection"):
             operation.cash_collection.save()
         return result
+
+    def archive(self, user, reason):
+        if self.is_archived:
+            return
+        if not self.daily_operation.is_editable:
+            raise ValidationError(
+                "Readings can only be archived while the operation is draft or rejected."
+            )
+        reason = self.clean_archive_reason(reason)
+        archived_at = timezone.now()
+        PumpReading.objects.filter(pk=self.pk, is_archived=False).update(
+            is_archived=True,
+            archived_at=archived_at,
+            archived_by=user,
+            archive_reason=reason,
+            updated_at=archived_at,
+        )
+        self.is_archived = True
+        self.archived_at = archived_at
+        self.archived_by = user
+        self.archive_reason = reason
+        if hasattr(self.daily_operation, "cash_collection"):
+            self.daily_operation.cash_collection.save()
 
     def __str__(self):
         return f"{self.daily_operation} - {self.pump}"
@@ -763,7 +842,7 @@ class CashCollection(TimeStampedModel):
         return f"{self.daily_operation} collection"
 
 
-class FuelDelivery(TimeStampedModel):
+class FuelDelivery(ArchivableModel):
     station = models.ForeignKey(
         Station,
         on_delete=models.CASCADE,
@@ -841,6 +920,8 @@ class FuelDelivery(TimeStampedModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self.pk and FuelDelivery.objects.filter(pk=self.pk, is_archived=True).exists():
+            raise ValidationError("Archived fuel deliveries cannot be changed.")
         self.full_clean()
         self.calculate()
 
@@ -879,23 +960,68 @@ class FuelDelivery(TimeStampedModel):
 
             super().save(*args, **kwargs)
 
+    def archive(self, user, reason):
+        reason = self.clean_archive_reason(reason)
+        with transaction.atomic():
+            delivery = FuelDelivery.objects.select_for_update().get(pk=self.pk)
+            if delivery.is_archived:
+                return
+            tank = Tank.objects.select_for_update().get(pk=delivery.tank_id)
+            tank.current_volume_liters = liters(
+                tank.current_volume_liters - delivery.liters_delivered
+            )
+            tank.full_clean()
+            tank.save(update_fields=["current_volume_liters", "updated_at"])
+
+            archived_at = timezone.now()
+            FuelDelivery.objects.filter(pk=delivery.pk).update(
+                is_archived=True,
+                archived_at=archived_at,
+                archived_by=user,
+                archive_reason=reason,
+                updated_at=archived_at,
+            )
+        self.is_archived = True
+        self.archived_at = archived_at
+        self.archived_by = user
+        self.archive_reason = reason
+
     def __str__(self):
         return f"{self.station} - {self.fuel_product} - {self.delivery_date}"
 
 
 class ExpenseCategory(TimeStampedModel):
-    name = models.CharField(max_length=100, unique=True)
+    station = models.ForeignKey(
+        Station,
+        on_delete=models.CASCADE,
+        related_name="expense_categories",
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["station__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name"],
+                condition=Q(station__isnull=True),
+                name="unique_global_expense_category_name",
+            ),
+            models.UniqueConstraint(
+                fields=["station", "name"],
+                condition=Q(station__isnull=False),
+                name="unique_expense_category_name_per_station",
+            ),
+        ]
 
     def __str__(self):
         return self.name
 
 
-class Expense(TimeStampedModel):
+class Expense(ArchivableModel):
     station = models.ForeignKey(
         Station,
         on_delete=models.CASCADE,
@@ -924,6 +1050,40 @@ class Expense(TimeStampedModel):
 
     class Meta:
         ordering = ["-expense_date", "category__name"]
+
+    def clean(self):
+        if (
+            self.station_id
+            and self.category_id
+            and self.category.station_id
+            and self.category.station_id != self.station_id
+        ):
+            raise ValidationError(
+                {"category": "Expense category must be a system default or belong to this station."}
+            )
+
+    def save(self, *args, **kwargs):
+        if self.pk and Expense.objects.filter(pk=self.pk, is_archived=True).exists():
+            raise ValidationError("Archived expenses cannot be changed.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def archive(self, user, reason):
+        if self.is_archived:
+            return
+        reason = self.clean_archive_reason(reason)
+        archived_at = timezone.now()
+        Expense.objects.filter(pk=self.pk, is_archived=False).update(
+            is_archived=True,
+            archived_at=archived_at,
+            archived_by=user,
+            archive_reason=reason,
+            updated_at=archived_at,
+        )
+        self.is_archived = True
+        self.archived_at = archived_at
+        self.archived_by = user
+        self.archive_reason = reason
 
     def __str__(self):
         return f"{self.station} - {self.category} - {self.amount}"
@@ -976,6 +1136,24 @@ class InventoryAdjustment(TimeStampedModel):
     def clean(self):
         if self.tank_id and self.station_id and self.tank.station_id != self.station_id:
             raise ValidationError({"tank": "Tank must belong to the same station."})
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = InventoryAdjustment.objects.get(pk=self.pk)
+            if previous.applied_at and any(
+                getattr(previous, field) != getattr(self, field)
+                for field in (
+                    "station_id",
+                    "tank_id",
+                    "adjustment_date",
+                    "adjustment_type",
+                    "liters",
+                    "reason",
+                    "encoded_by_id",
+                )
+            ):
+                raise ValidationError("Applied inventory adjustments cannot be changed.")
+        return super().save(*args, **kwargs)
 
     def apply(self, user):
         if self.applied_at:

@@ -46,7 +46,7 @@
           {% if station_permissions.manage_expenses %}
             <section class="nav-section">
               <p class="nav-section-title">Finance</p>
-              <a class="nav-link {% if request.resolver_match.url_name == 'expenses' or request.resolver_match.url_name == 'expense_create' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expenses</a>
+              <a class="nav-link {% if request.resolver_match.url_name == 'expenses' or request.resolver_match.url_name == 'expense_create' or request.resolver_match.url_name == 'expense_edit' or request.resolver_match.url_name == 'expense_categories' or request.resolver_match.url_name == 'expense_category_create' or request.resolver_match.url_name == 'expense_category_edit' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expenses</a>
             </section>
           {% endif %}
 
@@ -78,6 +78,18 @@
             <div class="breadcrumb">FuelOps / {{ station.name|default:"Station" }}</div>
           </div>
           <div class="header-actions">
+            {% if available_stations|length > 1 %}
+              <form class="station-switcher" method="post" action="{% url 'switch_station' %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <i data-lucide="building-2"></i>
+                <select name="station_id" aria-label="Active station" onchange="this.form.submit()">
+                  {% for item in available_stations %}
+                    <option value="{{ item.pk }}" {% if active_station.pk == item.pk %}selected{% endif %}>{{ item.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% endif %}
             {% if guided_tour %}
               <button class="btn-icon" type="button" data-guide-replay aria-label="Replay page guide" title="Replay page guide">
                 <i data-lucide="circle-help"></i>
@@ -97,6 +109,17 @@
             <strong>FuelOps</strong>
           </a>
           <div class="mobile-header-actions">
+            {% if available_stations|length > 1 %}
+              <form class="station-switcher station-switcher-mobile" method="post" action="{% url 'switch_station' %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <select name="station_id" aria-label="Active station" onchange="this.form.submit()">
+                  {% for item in available_stations %}
+                    <option value="{{ item.pk }}" {% if active_station.pk == item.pk %}selected{% endif %}>{{ item.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% endif %}
             {% if station_permissions.manage_catalog %}
               <a class="btn-icon" href="{% url 'station_settings' %}" aria-label="Station settings" title="Station settings"><i data-lucide="settings"></i></a>
             {% endif %}
@@ -168,7 +191,7 @@
         <a class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}" href="{% url 'inventory' %}"><i data-lucide="database"></i> Stock</a>
       {% endif %}
       {% if station_permissions.manage_expenses %}
-        <a class="{% if request.resolver_match.url_name == 'expenses' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expense</a>
+        <a class="{% if request.resolver_match.url_name == 'expenses' or request.resolver_match.url_name == 'expense_create' or request.resolver_match.url_name == 'expense_edit' or request.resolver_match.url_name == 'expense_categories' or request.resolver_match.url_name == 'expense_category_create' or request.resolver_match.url_name == 'expense_category_edit' %}active{% endif %}" href="{% url 'expenses' %}"><i data-lucide="wallet"></i> Expense</a>
       {% endif %}
       {% if station_permissions.view_reports %}
         <a class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
