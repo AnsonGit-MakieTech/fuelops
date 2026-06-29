@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
-<body>
+<body{% if guided_tour %} data-guide-key="{{ guided_tour.key }}" data-guide-version="{{ guided_tour.version }}" data-guide-has-seen="{{ guided_tour.has_seen|yesno:'true,false' }}" data-guide-progress-url="{% url 'guide_progress' %}"{% endif %}>
   {% if user.is_authenticated %}
     <div class="app-shell">
       <aside class="sidebar">
@@ -53,6 +53,11 @@
             <div class="breadcrumb">FuelOps / {{ station.name|default:"Station" }}</div>
           </div>
           <div class="header-actions">
+            {% if guided_tour %}
+              <button class="btn-icon" type="button" data-guide-replay aria-label="Replay page guide" title="Replay page guide">
+                <i data-lucide="circle-help"></i>
+              </button>
+            {% endif %}
             <span class="user-chip"><i data-lucide="user-circle"></i> {{ user.get_username }}</span>
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
@@ -66,24 +71,95 @@
             <img src="{% static 'assets/fuelops-logo.png' %}" alt="FuelOps logo">
             <strong>FuelOps</strong>
           </a>
-          <form method="post" action="{% url 'logout' %}">
-            {% csrf_token %}
-            <button class="btn-ghost" type="submit"><i data-lucide="log-out"></i></button>
-          </form>
+          <div class="mobile-header-actions">
+            {% if guided_tour %}
+              <button class="btn-icon" type="button" data-guide-replay aria-label="Replay page guide" title="Replay page guide">
+                <i data-lucide="circle-help"></i>
+              </button>
+            {% endif %}
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="btn-ghost" type="submit" aria-label="Logout"><i data-lucide="log-out"></i></button>
+            </form>
+          </div>
         </div>
 
         <main class="content">
-          {% if messages %}
-            <div class="messages">
-              {% for message in messages %}
-                <div class="message {{ message.tags }}">{{ message }}</div>
-              {% endfor %}
-            </div>
-          {% endif %}
           {% block content %}{% endblock %}
         </main>
       </div>
     </div>
+
+    {% if messages %}
+      <div class="toast-stack" aria-live="polite" aria-atomic="true">
+        {% for message in messages %}
+          <div class="toast-notification {{ message.tags }}" role="status">
+            <div class="toast-icon" aria-hidden="true">
+              {% if "success" in message.tags %}
+                <i data-lucide="check"></i>
+              {% elif "error" in message.tags %}
+                <i data-lucide="triangle-alert"></i>
+              {% else %}
+                <i data-lucide="info"></i>
+              {% endif %}
+            </div>
+            <div class="toast-content">
+              <strong>
+                {% if "success" in message.tags %}
+                  Success
+                {% elif "error" in message.tags %}
+                  Action needed
+                {% else %}
+                  Notice
+                {% endif %}
+              </strong>
+              <span>{{ message }}</span>
+            </div>
+            <button class="toast-close" type="button" aria-label="Dismiss notification">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="confirm-modal" data-confirm-modal hidden>
+      <div class="confirm-backdrop" data-confirm-cancel></div>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-icon" data-confirm-icon>
+          <i data-lucide="triangle-alert"></i>
+        </div>
+        <div>
+          <h2 id="confirm-title" data-confirm-dialog-title>Confirm Action</h2>
+          <p data-confirm-dialog-message>This transaction will be saved.</p>
+        </div>
+        <div class="button-row confirm-actions">
+          <button class="btn-ghost" type="button" data-confirm-cancel>Cancel</button>
+          <button class="btn-accent" type="button" data-confirm-submit>Confirm</button>
+        </div>
+      </section>
+    </div>
+
+    {% if guided_tour %}
+      <div class="guided-tour" data-guide-layer hidden>
+        <div class="guided-tour-mask" aria-hidden="true"></div>
+        <div class="guided-tour-spotlight" data-guide-spotlight aria-hidden="true"></div>
+        <section class="guided-tour-dialog" data-guide-dialog role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-description" tabindex="-1">
+          <div class="guided-tour-header">
+            <span class="guided-tour-counter" data-guide-counter></span>
+            <button class="btn-icon guided-tour-close" type="button" data-guide-dismiss aria-label="Skip page guide" title="Skip page guide">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <h2 id="guide-title" data-guide-title></h2>
+          <p id="guide-description" data-guide-description></p>
+          <div class="guided-tour-actions">
+            <button class="btn-ghost" type="button" data-guide-previous><i data-lucide="arrow-left"></i> Previous</button>
+            <button class="btn-accent" type="button" data-guide-next>Next <i data-lucide="arrow-right"></i></button>
+          </div>
+        </section>
+      </div>
+    {% endif %}
 
     <nav class="bottom-nav">
       <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i data-lucide="gauge"></i> Today</a>
@@ -99,10 +175,78 @@
   {% endif %}
 
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="{% static 'js/guided-tours.js' %}" defer></script>
   <script>
     if (window.lucide) {
       window.lucide.createIcons({ attrs: { width: 18, height: 18, strokeWidth: 2 } });
     }
+
+    document.querySelectorAll(".toast-notification").forEach((toast, index) => {
+      window.setTimeout(() => toast.classList.add("is-visible"), 80 + index * 120);
+      window.setTimeout(() => toast.classList.remove("is-visible"), 5200 + index * 400);
+      window.setTimeout(() => toast.remove(), 5900 + index * 400);
+    });
+
+    document.querySelectorAll(".toast-close").forEach((button) => {
+      button.addEventListener("click", () => {
+        const toast = button.closest(".toast-notification");
+        if (!toast) return;
+        toast.classList.remove("is-visible");
+        window.setTimeout(() => toast.remove(), 240);
+      });
+    });
+
+    const confirmModal = document.querySelector("[data-confirm-modal]");
+    const confirmTitle = document.querySelector("[data-confirm-dialog-title]");
+    const confirmMessage = document.querySelector("[data-confirm-dialog-message]");
+    const confirmSubmit = document.querySelector("[data-confirm-submit]");
+    let pendingConfirmButton = null;
+
+    function closeConfirmModal() {
+      if (!confirmModal) return;
+      confirmModal.hidden = true;
+      pendingConfirmButton = null;
+    }
+
+    document.addEventListener("click", (event) => {
+      const trigger = event.target.closest("[data-confirm-title]");
+      if (!trigger || trigger.dataset.confirmed === "true") return;
+
+      const form = trigger.closest("form");
+      if (!form) return;
+
+      event.preventDefault();
+      pendingConfirmButton = trigger;
+      confirmTitle.textContent = trigger.dataset.confirmTitle || "Confirm Action";
+      confirmMessage.textContent = trigger.dataset.confirmMessage || "This transaction will be saved.";
+      confirmSubmit.textContent = trigger.dataset.confirmLabel || "Confirm";
+      confirmSubmit.className = trigger.dataset.confirmVariant || "btn-accent";
+      confirmModal.hidden = false;
+      confirmSubmit.focus();
+    });
+
+    document.querySelectorAll("[data-confirm-cancel]").forEach((button) => {
+      button.addEventListener("click", closeConfirmModal);
+    });
+
+    if (confirmSubmit) {
+      confirmSubmit.addEventListener("click", () => {
+        if (!pendingConfirmButton) return;
+        const form = pendingConfirmButton.closest("form");
+        pendingConfirmButton.dataset.confirmed = "true";
+        if (form.requestSubmit) {
+          form.requestSubmit(pendingConfirmButton);
+        } else {
+          form.submit();
+        }
+      });
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeConfirmModal();
+      }
+    });
   </script>
 </body>
 </html>

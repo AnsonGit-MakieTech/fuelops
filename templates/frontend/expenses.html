@@ -6,11 +6,11 @@
       <h2>Expenses</h2>
       <p>Operating costs for salaries, bills, maintenance, renewals, and supplies.</p>
     </div>
-    <a class="btn-accent" href="{% url 'expense_create' %}"><i data-lucide="plus"></i> Add Expense</a>
+    <a class="btn-accent" href="{% url 'expense_create' %}" data-guide-target="expense-create"><i data-lucide="plus"></i> Add Expense</a>
   </div>
 
   {% if expenses %}
-    <div class="table-wrapper">
+    <div class="table-wrapper" data-guide-target="expense-history">
       <table class="table">
         <thead>
           <tr>
@@ -39,6 +39,6 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state">No expenses recorded.</div>
+    <div class="empty-state" data-guide-target="expense-history">No expenses recorded.</div>
   {% endif %}
 {% endblock %}

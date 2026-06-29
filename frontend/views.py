@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -5,8 +6,10 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from api.models import (
     CashCollection,
@@ -25,9 +28,40 @@ from .forms import (
     FuelDeliveryForm,
     PumpReadingForm,
 )
+from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
+from .models import GuidedTourProgress
 
 
 ZERO = Decimal("0")
+
+
+@login_required
+@require_POST
+def guide_progress(request):
+    try:
+        payload = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "Invalid request payload."}, status=400)
+
+    guide_key = payload.get("guide_key")
+    version = payload.get("version")
+    status = payload.get("status")
+
+    if guide_key not in VALID_GUIDE_KEYS or version != GUIDE_VERSION:
+        return JsonResponse({"error": "Unknown guide or version."}, status=400)
+    if status not in GuidedTourProgress.Status.values:
+        return JsonResponse({"error": "Invalid guide status."}, status=400)
+
+    progress, _ = GuidedTourProgress.objects.update_or_create(
+        user=request.user,
+        guide_key=guide_key,
+        version=version,
+        defaults={"status": status},
+    )
+    return JsonResponse({"status": progress.status})
 
 
 def decimal_or_zero(value):

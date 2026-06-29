@@ -6,11 +6,11 @@
       <h2>Daily Sales</h2>
       <p>{{ station.name|default:"Station" }}</p>
     </div>
-    <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
+    <a class="btn-accent" href="{% url 'daily_operation_create' %}" data-guide-target="daily-sales-create"><i data-lucide="plus"></i> New Sale</a>
   </div>
 
   {% if operations %}
-    <div class="table-wrapper">
+    <div class="table-wrapper" data-guide-target="daily-sales-history">
       <table class="table">
         <thead>
           <tr>
@@ -47,6 +47,6 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state">No daily sales created yet.</div>
+    <div class="empty-state" data-guide-target="daily-sales-history">No daily sales created yet.</div>
   {% endif %}
 {% endblock %}

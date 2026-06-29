@@ -6,11 +6,11 @@
       <h2>Fuel Refill</h2>
       <p>Supplier deliveries and tank inventory movement.</p>
     </div>
-    <a class="btn-accent" href="{% url 'fuel_delivery_create' %}"><i data-lucide="plus"></i> Add Refill</a>
+    <a class="btn-accent" href="{% url 'fuel_delivery_create' %}" data-guide-target="fuel-refill-create"><i data-lucide="plus"></i> Add Refill</a>
   </div>
 
   {% if deliveries %}
-    <div class="table-wrapper">
+    <div class="table-wrapper" data-guide-target="fuel-refill-history">
       <table class="table">
         <thead>
           <tr>
@@ -43,6 +43,6 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state">No fuel deliveries recorded.</div>
+    <div class="empty-state" data-guide-target="fuel-refill-history">No fuel deliveries recorded.</div>
   {% endif %}
 {% endblock %}

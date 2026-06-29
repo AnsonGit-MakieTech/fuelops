@@ -12,6 +12,7 @@ urlpatterns = [
         name="login",
     ),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("guides/progress/", views.guide_progress, name="guide_progress"),
     path("daily-operations/", views.daily_operations, name="daily_operations"),
     path("daily-operations/new/", views.daily_operation_create, name="daily_operation_create"),
     path(

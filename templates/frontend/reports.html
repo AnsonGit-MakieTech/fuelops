@@ -8,7 +8,7 @@
     </div>
   </div>
 
-  <section class="panel">
+  <section class="panel" data-guide-target="reports-filters">
     <form class="filter-bar" method="get">
       <div class="form-field">
         <label for="station">Station</label>
@@ -30,7 +30,7 @@
     </form>
   </section>
 
-  <section class="grid metrics-grid" style="margin-top: 16px;">
+  <section class="grid metrics-grid" style="margin-top: 16px;" data-guide-target="reports-summary">
     <article class="dashboard-card">
       <div class="dashboard-card-label">Monthly Liters</div>
       <div class="dashboard-card-value liters">{{ summary.monthly_liters|floatformat:3 }} L</div>
@@ -54,7 +54,7 @@
   </section>
 
   <section class="grid two-column" style="margin-top: 16px;">
-    <article class="panel">
+    <article class="panel" data-guide-target="reports-daily">
       <div class="section-title">
         <h3>Daily Report</h3>
         <span class="badge badge-info">{{ report_date }}</span>
@@ -94,7 +94,7 @@
     </article>
 
     <aside class="grid">
-      <article class="panel">
+      <article class="panel" data-guide-target="reports-variance">
         <div class="section-title">
           <h3>Monthly Cash Variance</h3>
         </div>
@@ -110,7 +110,7 @@
         </div>
       </article>
 
-      <article class="panel">
+      <article class="panel" data-guide-target="reports-expenses">
         <div class="section-title">
           <h3>Expense Breakdown</h3>
           <span class="badge badge-warning">PHP {{ summary.monthly_expenses|floatformat:2 }}</span>

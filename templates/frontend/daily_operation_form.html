@@ -11,11 +11,18 @@
   <section class="panel">
     <form method="post">
       {% csrf_token %}
-      <div class="form-grid">
+      <div class="form-grid" data-guide-target="daily-sale-fields">
         {% include "frontend/includes/form_fields.html" with form=form %}
       </div>
-      <div class="button-row" style="margin-top: 18px;">
-        <button class="btn-accent" type="submit"><i data-lucide="save"></i> Create</button>
+      <div class="button-row" style="margin-top: 18px;" data-guide-target="daily-sale-submit">
+        <button
+          class="btn-accent"
+          type="submit"
+          data-confirm-title="Create daily sale?"
+          data-confirm-message="This will create the daily operation record for the selected station and date."
+          data-confirm-label="Create Sale"
+          data-confirm-variant="btn-accent"
+        ><i data-lucide="save"></i> Create</button>
         <a class="btn-ghost" href="{% url 'daily_operations' %}">Cancel</a>
       </div>
     </form>

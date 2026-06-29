@@ -6,7 +6,7 @@
       <h2>{{ station.name|default:"No station configured" }}</h2>
       <p>{{ metrics.today|date:"F j, Y" }}</p>
     </div>
-    <div class="button-row">
+    <div class="button-row" data-guide-target="dashboard-actions">
       <a class="btn-accent" href="{% url 'daily_operation_create' %}"><i data-lucide="plus"></i> New Sale</a>
       <a class="btn-ghost" href="{% url 'reports' %}"><i data-lucide="file-text"></i> Reports</a>
     </div>
@@ -15,7 +15,7 @@
   {% if not station %}
     <div class="empty-state">Create a station from Django admin, then run the seed command or add tanks and pumps manually.</div>
   {% else %}
-    <section class="grid metrics-grid">
+    <section class="grid metrics-grid" data-guide-target="dashboard-metrics">
       <article class="dashboard-card">
         <div class="dashboard-card-label">Today's Gross Sales</div>
         <div class="dashboard-card-value amount">PHP {{ metrics.today_expected_sales|floatformat:2 }}</div>
@@ -50,7 +50,7 @@
 
     <section class="grid two-column" style="margin-top: 16px;">
       <div class="grid">
-        <article class="panel">
+        <article class="panel" data-guide-target="dashboard-alerts">
           <div class="section-title">
             <h3>Owner Alerts</h3>
             <span class="badge badge-warning">{{ alerts|length }} active</span>
@@ -69,7 +69,7 @@
           {% endif %}
         </article>
 
-        <article class="panel">
+        <article class="panel" data-guide-target="dashboard-recent-sales">
           <div class="section-title">
             <h3>Recent Daily Sales</h3>
             <a class="btn-ghost" href="{% url 'daily_operations' %}"><i data-lucide="arrow-right"></i> View</a>
@@ -114,7 +114,7 @@
       </div>
 
       <aside class="grid">
-        <article class="panel">
+        <article class="panel" data-guide-target="dashboard-inventory">
           <div class="section-title">
             <h3>Fuel Inventory</h3>
             <a class="btn-ghost" href="{% url 'fuel_deliveries' %}"><i data-lucide="truck"></i> Refill</a>

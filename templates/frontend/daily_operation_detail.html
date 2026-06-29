@@ -12,7 +12,7 @@
     </div>
   </div>
 
-  <section class="grid metrics-grid">
+  <section class="grid metrics-grid" data-guide-target="operation-summary">
     <article class="dashboard-card">
       <div class="dashboard-card-label">Liters Sold</div>
       <div class="dashboard-card-value liters">{{ operation.total_liters_sold|floatformat:3 }} L</div>
@@ -39,7 +39,7 @@
 
   <section class="grid two-column" style="margin-top: 16px;">
     <div class="grid">
-      <article class="panel">
+      <article class="panel" data-guide-target="operation-readings">
         <div class="section-title">
           <h3>Pump Readings</h3>
         </div>
@@ -77,7 +77,7 @@
         {% endif %}
       </article>
 
-      <article class="panel">
+      <article class="panel" data-guide-target="operation-collection">
         <div class="section-title">
           <h3>Cash Collection</h3>
         </div>
@@ -88,14 +88,21 @@
             {% include "frontend/includes/form_fields.html" with form=collection_form %}
           </div>
           <div class="button-row" style="margin-top: 18px;">
-            <button class="btn-primary" type="submit"><i data-lucide="save"></i> Save Collection</button>
+            <button
+              class="btn-primary"
+              type="submit"
+              data-confirm-title="Save cash collection?"
+              data-confirm-message="This updates the collected cash, non-cash payments, and cash variance for this daily sale."
+              data-confirm-label="Save Collection"
+              data-confirm-variant="btn-primary"
+            ><i data-lucide="save"></i> Save Collection</button>
           </div>
         </form>
       </article>
     </div>
 
     <aside class="grid">
-      <article class="panel">
+      <article class="panel" data-guide-target="operation-reading-form">
         <div class="section-title">
           <h3>Add Pump Reading</h3>
         </div>
@@ -106,12 +113,19 @@
             {% include "frontend/includes/form_fields.html" with form=reading_form %}
           </div>
           <div class="button-row" style="margin-top: 18px;">
-            <button class="btn-accent" type="submit"><i data-lucide="plus"></i> Add Reading</button>
+            <button
+              class="btn-accent"
+              type="submit"
+              data-confirm-title="Add pump reading?"
+              data-confirm-message="This reading will affect liters sold and expected sales for this daily operation."
+              data-confirm-label="Add Reading"
+              data-confirm-variant="btn-accent"
+            ><i data-lucide="plus"></i> Add Reading</button>
           </div>
         </form>
       </article>
 
-      <article class="panel">
+      <article class="panel" data-guide-target="operation-review-actions">
         <div class="section-title">
           <h3>Review Action</h3>
         </div>
@@ -119,18 +133,39 @@
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="submit">
-            <button class="btn-primary" type="submit"><i data-lucide="send"></i> Submit</button>
+            <button
+              class="btn-primary"
+              type="submit"
+              data-confirm-title="Submit daily sale?"
+              data-confirm-message="This sends the daily operation for owner or manager review."
+              data-confirm-label="Submit"
+              data-confirm-variant="btn-primary"
+            ><i data-lucide="send"></i> Submit</button>
           </form>
           {% if can_approve %}
             <form method="post">
               {% csrf_token %}
               <input type="hidden" name="action" value="approve">
-              <button class="btn-accent" type="submit"><i data-lucide="check"></i> Approve</button>
+              <button
+                class="btn-accent"
+                type="submit"
+                data-confirm-title="Approve and deduct inventory?"
+                data-confirm-message="This approves the daily sale and deducts sold liters from the linked tanks. This is an inventory-changing action."
+                data-confirm-label="Approve"
+                data-confirm-variant="btn-accent"
+              ><i data-lucide="check"></i> Approve</button>
             </form>
             <form method="post">
               {% csrf_token %}
               <input type="hidden" name="action" value="reject">
-              <button class="btn-danger" type="submit"><i data-lucide="x"></i> Reject</button>
+              <button
+                class="btn-danger"
+                type="submit"
+                data-confirm-title="Reject daily sale?"
+                data-confirm-message="This rejects the submitted daily operation and marks it for correction."
+                data-confirm-label="Reject"
+                data-confirm-variant="btn-danger"
+              ><i data-lucide="x"></i> Reject</button>
             </form>
           {% endif %}
         </div>
