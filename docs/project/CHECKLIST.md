@@ -39,3 +39,22 @@ DONE - Add registration rate limits, audit events, and cross-station security te
 DONE - Improve Dashboard and Reports layouts on phone screens.
 DONE - Replace non-field form error blocks with slide notifications.
 DONE - Run registration, invitation, tenancy, mobile markup, notification, migration, and Django verification checks.
+DONE - Audit implemented routes and workflows against the project requirements.
+TODO - Build station settings for adding and editing multiple fuel products, tanks, pumps, and station details.
+TODO - Make suppliers station-scoped and add supplier management pages.
+TODO - Add a dedicated tank inventory page with delivery and adjustment history.
+TODO - Build the inventory adjustment workflow with owner or manager approval.
+TODO - Enforce role permissions for owner, manager, staff, and accountant across navigation, views, forms, and reports.
+TODO - Enforce valid daily-operation state transitions and require readings and collection before approval.
+TODO - Prevent approved-operation changes at the model and admin layers and add a controlled reopen workflow.
+TODO - Add rejection notes input and correction workflow.
+TODO - Recalculate collection variance when pump readings change.
+TODO - Snapshot fuel cost on each pump reading and exclude draft or rejected operations from official profit reports.
+TODO - Add edit and controlled archive flows for readings, deliveries, expenses, and other financial records.
+TODO - Complete audit logs for approvals, rejections, inventory changes, edits, archives, and access changes.
+TODO - Add team member role changes, suspension, reactivation, and last-owner protection.
+TODO - Add active-station switching for users assigned to multiple stations.
+TODO - Add report date ranges, per-product totals, delivery cost, and inventory movement reporting.
+TODO - Add the planned dashboard and reporting API endpoints or remove them from the MVP contract.
+TODO - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
+TODO - Run manual end-to-end QA and validate calculations with one real station.
