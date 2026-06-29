@@ -82,8 +82,7 @@ textarea {
   align-items: center;
   gap: 12px;
   padding: 0 8px 24px;
-}
-
+} 
 .sidebar-brand img {
   width: 42px;
   height: 42px;
@@ -1116,6 +1115,11 @@ body.is-guided-tour-open {
 }
 
 @media (max-width: 820px) {
+
+  .sidebar-brand{
+    padding: 0px;
+  }
+  
   .app-shell {
     display: block;
   }
