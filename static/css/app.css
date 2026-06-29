@@ -510,6 +510,23 @@ textarea {
   margin-bottom: 16px;
 }
 
+.report-export-bar {
+  margin-top: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-export-bar form {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-export-bar .form-field {
+  width: min(100%, 360px);
+}
+
 .member-role-form {
   display: flex;
   align-items: center;
@@ -1049,6 +1066,11 @@ body.is-guided-tour-open {
 
   .readonly-breakdown {
     grid-template-columns: 1fr;
+  }
+
+  .report-export-bar form {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

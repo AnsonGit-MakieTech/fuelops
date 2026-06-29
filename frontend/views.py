@@ -10,14 +10,14 @@ from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from api.models import (
     AuditLog,
@@ -78,6 +78,15 @@ from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
 from .models import GuidedTourProgress
 from .security import request_is_rate_limited
 from .services.reporting import build_report, date_range, month_bounds
+from .services.report_exports import (
+    REPORT_FORMATS,
+    REPORT_TYPES,
+    build_sections,
+    render_csv,
+    render_pdf,
+    report_filename,
+    report_metadata,
+)
 from .services.registration import (
     accept_invitation_for_user,
     activate_user,
@@ -1637,8 +1646,7 @@ def expense_archive(request, pk):
     return redirect("expenses")
 
 
-@login_required
-def reports(request):
+def report_context(request):
     station = permitted_current_station(request, VIEW_REPORTS)
     stations = stations_for_user_with_permission(request.user, VIEW_REPORTS)
     selected_station_id = request.GET.get("station")
@@ -1653,17 +1661,77 @@ def reports(request):
     month_value = request.GET.get("month") or today.strftime("%Y-%m")
     month_start, month_end = month_bounds(month_value)
     report = build_report(station, date_from, date_to, month_start, month_end)
+    return {
+        "station": station,
+        "stations": stations,
+        "date_from": date_from,
+        "date_to": date_to,
+        "month_value": month_start.strftime("%Y-%m"),
+        **report,
+    }
+
+
+@login_required
+def reports(request):
+    context = report_context(request)
 
     return render(
         request,
         "frontend/reports.html",
         {
             "page_title": "Reports",
-            "station": station,
-            "stations": stations,
-            "date_from": date_from,
-            "date_to": date_to,
-            "month_value": month_start.strftime("%Y-%m"),
-            **report,
+            "report_types": REPORT_TYPES,
+            **context,
         },
     )
+
+
+@login_required
+@require_GET
+def report_export(request):
+    report_type = request.GET.get("report_type", "comprehensive")
+    export_format = request.GET.get("format", "pdf")
+    if report_type not in REPORT_TYPES:
+        return HttpResponseBadRequest("Unknown report type.")
+    if export_format not in REPORT_FORMATS:
+        return HttpResponseBadRequest("Unknown report format.")
+
+    context = report_context(request)
+    sections = build_sections(report_type, context)
+    metadata = report_metadata(
+        context["station"],
+        report_type,
+        context["date_from"],
+        context["date_to"],
+        context["month_value"],
+        request.user,
+    )
+    if export_format == "csv":
+        response = HttpResponse(render_csv(metadata, sections), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{report_filename(context["station"], report_type, "csv")}"'
+    elif export_format == "pdf":
+        response = HttpResponse(render_pdf(metadata, sections), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{report_filename(context["station"], report_type, "pdf")}"'
+    else:
+        response = render(
+            request,
+            "frontend/report_print.html",
+            {
+                "page_title": metadata["title"],
+                "metadata": metadata,
+                "sections": sections,
+            },
+        )
+    log_audit(
+        request.user,
+        "report_generated",
+        context["station"],
+        new_value={
+            "report_type": report_type,
+            "format": export_format,
+            "date_from": context["date_from"],
+            "date_to": context["date_to"],
+            "month": context["month_value"],
+        },
+    )
+    return response

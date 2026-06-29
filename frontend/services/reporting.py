@@ -65,7 +65,7 @@ def build_report(station, date_from, date_to, month_start, month_end):
         expense_date__gte=month_start,
         expense_date__lt=month_end,
         is_archived=False,
-    )
+    ).select_related("category", "encoded_by")
     deliveries = list(
         FuelDelivery.objects.filter(
             station=station,
@@ -142,6 +142,8 @@ def build_report(station, date_from, date_to, month_start, month_end):
     gross_profit = expected_sales - fuel_cost
     return {
         "daily_operations": operations,
+        "expenses": expenses,
+        "deliveries": deliveries,
         "expense_categories": expenses.values("category__name").annotate(total=Sum("amount")).order_by("category__name"),
         "product_totals": sorted(product_map.values(), key=lambda item: item["name"]),
         "inventory_movements": movements,

@@ -131,4 +131,5 @@ urlpatterns = [
     path("expenses/<int:pk>/edit/", views.expense_edit, name="expense_edit"),
     path("expenses/<int:pk>/archive/", views.expense_archive, name="expense_archive"),
     path("reports/", views.reports, name="reports"),
+    path("reports/export/", views.report_export, name="report_export"),
 ]

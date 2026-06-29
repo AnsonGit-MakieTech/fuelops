@@ -35,6 +35,28 @@
     </form>
   </section>
 
+  <section class="report-export-bar">
+    <form method="get" action="{% url 'report_export' %}">
+      <input type="hidden" name="station" value="{{ station.pk }}">
+      <input type="hidden" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+      <input type="hidden" name="month" value="{{ month_value }}">
+      <div class="form-field">
+        <label for="report_type">Generate Report</label>
+        <select class="form-control" id="report_type" name="report_type">
+          {% for value, label in report_types.items %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="button-row">
+        <button class="btn-accent" type="submit" name="format" value="pdf"><i data-lucide="file-down"></i> PDF</button>
+        <button class="btn-ghost" type="submit" name="format" value="csv"><i data-lucide="sheet"></i> CSV</button>
+        <button class="btn-ghost" type="submit" name="format" value="print" formtarget="_blank"><i data-lucide="printer"></i> Print</button>
+      </div>
+    </form>
+  </section>
+
   <section class="grid metrics-grid report-metrics" style="margin-top: 16px;" data-guide-target="reports-summary">
     <article class="dashboard-card">
       <div class="dashboard-card-label">Monthly Liters</div>

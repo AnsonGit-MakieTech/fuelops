@@ -901,3 +901,98 @@ class RegistrationAndAccessTests(TestCase):
         )
         self.client.force_login(staff)
         self.assertEqual(self.client.get(reverse("expense_categories")).status_code, 403)
+
+    def test_report_generation_supports_pdf_csv_print_and_audit(self):
+        owner, station = self.create_owner_station()
+        _, _, pump = self.create_product_chain(station)
+        report_date = timezone.localdate().replace(day=1)
+        operation = DailyOperation.objects.create(
+            station=station,
+            operation_date=report_date,
+            encoded_by=owner,
+        )
+        PumpReading.objects.create(
+            daily_operation=operation,
+            pump=pump,
+            opening_reading="100.000",
+            closing_reading="110.000",
+            price_per_liter="60.00",
+        )
+        CashCollection.objects.create(daily_operation=operation, actual_cash="600.00")
+        operation.submit()
+        operation.approve(owner)
+        self.client.force_login(owner)
+        params = {
+            "station": station.pk,
+            "date_from": report_date.isoformat(),
+            "date_to": report_date.isoformat(),
+            "month": report_date.strftime("%Y-%m"),
+            "report_type": "comprehensive",
+        }
+
+        response = self.client.get(reverse("report_export"), {**params, "format": "pdf"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertIn("fuelops-owner-station-comprehensive", response["Content-Disposition"])
+
+        response = self.client.get(reverse("report_export"), {**params, "format": "csv"})
+        self.assertEqual(response["Content-Type"], "text/csv; charset=utf-8")
+        csv_content = response.content.decode("utf-8")
+        self.assertIn("Comprehensive Operations Report", csv_content)
+        self.assertIn("Approved Sales", csv_content)
+        self.assertIn(report_date.isoformat(), csv_content)
+        self.assertIn("PHP 600.00", csv_content)
+
+        response = self.client.get(reverse("report_export"), {**params, "format": "print"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Comprehensive Operations Report")
+        self.assertContains(response, "window.print()")
+        self.assertEqual(
+            AuditLog.objects.filter(
+                action="report_generated",
+                model_name="Station",
+                object_id=str(station.pk),
+            ).count(),
+            3,
+        )
+
+    def test_report_generation_validates_format_and_report_permission(self):
+        owner, station = self.create_owner_station()
+        staff = self.create_station_member(
+            station,
+            StationMembership.Role.STAFF,
+            "report-export-staff@example.com",
+        )
+        accountant = self.create_station_member(
+            station,
+            StationMembership.Role.ACCOUNTANT,
+            "report-export-accountant@example.com",
+        )
+        params = {
+            "report_type": "performance",
+            "format": "csv",
+            "month": timezone.localdate().strftime("%Y-%m"),
+        }
+
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get(reverse("report_export"), params).status_code, 403)
+
+        self.client.force_login(accountant)
+        self.assertEqual(self.client.get(reverse("report_export"), params).status_code, 200)
+
+        self.client.force_login(owner)
+        self.assertEqual(
+            self.client.get(
+                reverse("report_export"),
+                {"report_type": "performance", "format": "xlsx"},
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("report_export"),
+                {"report_type": "custom", "format": "pdf"},
+            ).status_code,
+            400,
+        )
