@@ -68,6 +68,7 @@ class FuelOpsCalculationTests(TestCase):
 
         self.assertEqual(reading.liters_sold, Decimal("25.500"))
         self.assertEqual(reading.expected_sales, Decimal("1657.50"))
+        self.assertEqual(reading.cost_per_liter, Decimal("60.00"))
 
     def test_invalid_pump_reading_is_rejected(self):
         with self.assertRaises(ValidationError):
@@ -129,6 +130,11 @@ class FuelOpsCalculationTests(TestCase):
             closing_reading=Decimal("120.000"),
             price_per_liter=Decimal("65.00"),
         )
+        CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("1300.00"),
+        )
+        self.operation.submit()
 
         self.operation.approve(self.user)
         self.tank.refresh_from_db()
@@ -137,3 +143,143 @@ class FuelOpsCalculationTests(TestCase):
         self.operation.approve(self.user)
         self.tank.refresh_from_db()
         self.assertEqual(self.tank.current_volume_liters, Decimal("980.000"))
+
+    def test_submission_and_approval_enforce_ready_state_and_transitions(self):
+        self.operation.status = DailyOperation.Status.APPROVED
+        with self.assertRaises(ValidationError):
+            self.operation.save()
+        self.operation.status = DailyOperation.Status.DRAFT
+
+        with self.assertRaises(ValidationError):
+            self.operation.submit()
+
+        PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("110.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        with self.assertRaises(ValidationError):
+            self.operation.submit()
+
+        CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("650.00"),
+        )
+        with self.assertRaises(ValidationError):
+            self.operation.approve(self.user)
+
+        self.operation.submit()
+        self.assertEqual(self.operation.status, DailyOperation.Status.SUBMITTED)
+        with self.assertRaises(ValidationError):
+            self.operation.submit()
+
+    def test_rejection_requires_reason_and_returns_operation_to_correction_flow(self):
+        reading = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("110.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("650.00"),
+        )
+        self.operation.submit()
+
+        with self.assertRaises(ValidationError):
+            self.operation.reject(self.user, "")
+
+        self.operation.reject(self.user, "Correct the closing meter.")
+        self.assertEqual(self.operation.status, DailyOperation.Status.REJECTED)
+        self.assertEqual(self.operation.rejection_reason, "Correct the closing meter.")
+
+        reading.closing_reading = Decimal("111.000")
+        reading.save()
+        self.operation.submit()
+        self.assertEqual(self.operation.status, DailyOperation.Status.SUBMITTED)
+
+    def test_submitted_and_approved_records_are_locked_and_reopen_reverses_inventory(self):
+        reading = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("120.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        collection = CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("1300.00"),
+        )
+        self.operation.submit()
+
+        reading.closing_reading = Decimal("121.000")
+        with self.assertRaises(ValidationError):
+            reading.save()
+        collection.actual_cash = Decimal("1400.00")
+        with self.assertRaises(ValidationError):
+            collection.save()
+
+        self.operation.approve(self.user)
+        self.tank.refresh_from_db()
+        self.assertEqual(self.tank.current_volume_liters, Decimal("980.000"))
+        self.operation.notes = "Direct approved edit"
+        with self.assertRaises(ValidationError):
+            self.operation.save()
+        self.operation.notes = ""
+        with self.assertRaises(ValidationError):
+            self.operation.delete()
+        with self.assertRaises(ValidationError):
+            self.operation.reopen(self.user, "")
+
+        self.operation.reopen(self.user, "Correct approved meter entry.")
+        self.tank.refresh_from_db()
+        self.assertEqual(self.operation.status, DailyOperation.Status.DRAFT)
+        self.assertEqual(self.tank.current_volume_liters, Decimal("1000.000"))
+        self.assertIsNone(self.operation.inventory_deducted_at)
+
+        reading.refresh_from_db()
+        reading.closing_reading = Decimal("119.000")
+        reading.save()
+
+    def test_collection_variance_recalculates_when_readings_change_or_delete(self):
+        collection = CashCollection.objects.create(
+            daily_operation=self.operation,
+            actual_cash=Decimal("600.00"),
+        )
+        reading = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("110.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        collection.refresh_from_db()
+        self.assertEqual(collection.shortage, Decimal("50.00"))
+
+        reading.closing_reading = Decimal("108.000")
+        reading.save()
+        collection.refresh_from_db()
+        self.assertEqual(collection.expected_sales, Decimal("520.00"))
+        self.assertEqual(collection.overage, Decimal("80.00"))
+
+        reading.delete()
+        collection.refresh_from_db()
+        self.assertEqual(collection.expected_sales, Decimal("0.00"))
+        self.assertEqual(collection.overage, Decimal("600.00"))
+
+    def test_reading_cost_snapshot_does_not_change_with_product_cost(self):
+        reading = PumpReading.objects.create(
+            daily_operation=self.operation,
+            pump=self.pump,
+            opening_reading=Decimal("100.000"),
+            closing_reading=Decimal("110.000"),
+            price_per_liter=Decimal("65.00"),
+        )
+        self.product.cost_per_liter = Decimal("70.00")
+        self.product.save(update_fields=["cost_per_liter", "updated_at"])
+
+        reading.refresh_from_db()
+        self.assertEqual(reading.cost_per_liter, Decimal("60.00"))

@@ -358,6 +358,16 @@ class DailyOperation(TimeStampedModel):
     )
     inventory_deducted_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    rejection_reason = models.TextField(blank=True)
+    reopened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reopened_daily_operations",
+        null=True,
+        blank=True,
+    )
+    reopened_at = models.DateTimeField(null=True, blank=True)
+    reopen_reason = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-operation_date", "station__name"]
@@ -394,16 +404,83 @@ class DailyOperation(TimeStampedModel):
             return money(ZERO)
         return self.cash_collection.overage
 
+    @property
+    def is_editable(self):
+        return self.status in {self.Status.DRAFT, self.Status.REJECTED}
+
+    def save(self, *args, **kwargs):
+        transition_allowed = getattr(self, "_transition_allowed", False)
+        if not self.pk and self.status != self.Status.DRAFT and not transition_allowed:
+            raise ValidationError({"status": "New operations must start as draft."})
+
+        if self.pk and not transition_allowed:
+            previous = DailyOperation.objects.get(pk=self.pk)
+            if previous.status != self.status:
+                raise ValidationError(
+                    {"status": "Use the operation workflow actions to change status."}
+                )
+            if previous.status in {self.Status.SUBMITTED, self.Status.APPROVED}:
+                protected_fields = (
+                    "station_id",
+                    "operation_date",
+                    "encoded_by_id",
+                    "notes",
+                    "approved_by_id",
+                    "inventory_deducted_at",
+                    "rejection_reason",
+                    "reopened_by_id",
+                    "reopened_at",
+                    "reopen_reason",
+                )
+                if any(
+                    getattr(previous, field) != getattr(self, field)
+                    for field in protected_fields
+                ):
+                    raise ValidationError(
+                        "Submitted and approved operations can only change through workflow actions."
+                    )
+        super().save(*args, **kwargs)
+
+    def save_transition(self, update_fields):
+        self._transition_allowed = True
+        try:
+            self.save(update_fields=update_fields)
+        finally:
+            self._transition_allowed = False
+
+    def delete(self, *args, **kwargs):
+        if not self.is_editable:
+            raise ValidationError(
+                "Submitted and approved operations cannot be deleted. Use the controlled workflow."
+            )
+        return super().delete(*args, **kwargs)
+
+    def validate_ready_for_review(self):
+        errors = {}
+        if not self.readings.exists():
+            errors["readings"] = "Add at least one pump reading before submission."
+        if not hasattr(self, "cash_collection"):
+            errors["collection"] = "Save the cash collection before submission."
+        if errors:
+            raise ValidationError(errors)
+
     def submit(self):
+        if not self.is_editable:
+            raise ValidationError(
+                {"status": "Only draft or rejected operations can be submitted."}
+            )
+        self.validate_ready_for_review()
         self.status = self.Status.SUBMITTED
-        self.save(update_fields=["status", "updated_at"])
+        self.save_transition(["status", "updated_at"])
 
     def approve(self, user):
-        if self.inventory_deducted_at:
-            self.status = self.Status.APPROVED
-            self.approved_by = user
-            self.save(update_fields=["status", "approved_by", "updated_at"])
+        if self.status == self.Status.APPROVED and self.inventory_deducted_at:
             return
+        if self.status != self.Status.SUBMITTED:
+            raise ValidationError(
+                {"status": "Only submitted operations can be approved."}
+            )
+        self.validate_ready_for_review()
 
         with transaction.atomic():
             for reading in self.readings.select_related("pump__tank").select_for_update():
@@ -417,8 +494,8 @@ class DailyOperation(TimeStampedModel):
             self.status = self.Status.APPROVED
             self.approved_by = user
             self.inventory_deducted_at = timezone.now()
-            self.save(
-                update_fields=[
+            self.save_transition(
+                [
                     "status",
                     "approved_by",
                     "inventory_deducted_at",
@@ -426,12 +503,61 @@ class DailyOperation(TimeStampedModel):
                 ]
             )
 
-    def reject(self, user, notes=""):
+    def reject(self, user, reason):
+        if self.status != self.Status.SUBMITTED:
+            raise ValidationError(
+                {"status": "Only submitted operations can be rejected."}
+            )
+        reason = reason.strip()
+        if not reason:
+            raise ValidationError({"rejection_reason": "A rejection reason is required."})
         self.status = self.Status.REJECTED
         self.approved_by = user
-        if notes:
-            self.notes = notes
-        self.save(update_fields=["status", "approved_by", "notes", "updated_at"])
+        self.rejection_reason = reason
+        self.save_transition(
+            [
+                "status",
+                "approved_by",
+                "rejection_reason",
+                "updated_at",
+            ]
+        )
+
+    def reopen(self, user, reason):
+        if self.status != self.Status.APPROVED or not self.inventory_deducted_at:
+            raise ValidationError(
+                {"status": "Only approved operations can be reopened."}
+            )
+        reason = reason.strip()
+        if not reason:
+            raise ValidationError({"reopen_reason": "A reopen reason is required."})
+
+        with transaction.atomic():
+            for reading in self.readings.select_related("pump__tank").select_for_update():
+                tank = Tank.objects.select_for_update().get(pk=reading.pump.tank_id)
+                tank.current_volume_liters = liters(
+                    tank.current_volume_liters + reading.liters_sold
+                )
+                tank.full_clean()
+                tank.save(update_fields=["current_volume_liters", "updated_at"])
+
+            self.status = self.Status.DRAFT
+            self.approved_by = None
+            self.inventory_deducted_at = None
+            self.reopened_by = user
+            self.reopened_at = timezone.now()
+            self.reopen_reason = reason
+            self.save_transition(
+                [
+                    "status",
+                    "approved_by",
+                    "inventory_deducted_at",
+                    "reopened_by",
+                    "reopened_at",
+                    "reopen_reason",
+                    "updated_at",
+                ]
+            )
 
     def __str__(self):
         return f"{self.station} - {self.operation_date}"
@@ -469,6 +595,13 @@ class PumpReading(TimeStampedModel):
         decimal_places=2,
         validators=[MinValueValidator(ZERO)],
     )
+    cost_per_liter = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=ZERO,
+        editable=False,
+        validators=[MinValueValidator(ZERO)],
+    )
     expected_sales = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -492,6 +625,11 @@ class PumpReading(TimeStampedModel):
     def clean(self):
         errors = {}
 
+        if self.daily_operation_id and not self.daily_operation.is_editable:
+            errors["daily_operation"] = (
+                "Readings can only change while the operation is draft or rejected."
+            )
+
         if self.closing_reading < self.opening_reading:
             errors["closing_reading"] = "Closing reading must be greater than or equal to opening reading."
 
@@ -506,9 +644,24 @@ class PumpReading(TimeStampedModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if not self.pk and self.pump_id:
+            self.cost_per_liter = money(self.pump.fuel_product.cost_per_liter)
         self.full_clean()
         self.calculate()
         super().save(*args, **kwargs)
+        if hasattr(self.daily_operation, "cash_collection"):
+            self.daily_operation.cash_collection.save()
+
+    def delete(self, *args, **kwargs):
+        if not self.daily_operation.is_editable:
+            raise ValidationError(
+                "Readings can only be deleted while the operation is draft or rejected."
+            )
+        operation = self.daily_operation
+        result = super().delete(*args, **kwargs)
+        if hasattr(operation, "cash_collection"):
+            operation.cash_collection.save()
+        return result
 
     def __str__(self):
         return f"{self.daily_operation} - {self.pump}"
@@ -587,6 +740,10 @@ class CashCollection(TimeStampedModel):
         self.overage = money(variance) if variance > ZERO else money(ZERO)
 
     def clean(self):
+        if self.daily_operation_id and not self.daily_operation.is_editable:
+            raise ValidationError(
+                {"daily_operation": "Collections can only change while the operation is draft or rejected."}
+            )
         if self.daily_operation_id:
             self.calculate()
 
@@ -594,6 +751,13 @@ class CashCollection(TimeStampedModel):
         self.full_clean()
         self.calculate()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if not self.daily_operation.is_editable:
+            raise ValidationError(
+                "Collections can only be deleted while the operation is draft or rejected."
+            )
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.daily_operation} collection"

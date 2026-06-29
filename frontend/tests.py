@@ -1,4 +1,6 @@
 import json
+from datetime import timedelta
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
@@ -12,10 +14,12 @@ from django.utils.http import urlsafe_base64_encode
 
 from api.models import (
     AuditLog,
+    CashCollection,
     DailyOperation,
     FuelProduct,
     InventoryAdjustment,
     Pump,
+    PumpReading,
     Station,
     StationMembership,
     Supplier,
@@ -359,11 +363,22 @@ class RegistrationAndAccessTests(TestCase):
 
     def test_dashboard_and_reports_include_phone_layout_markup(self):
         user, station = self.create_owner_station()
-        DailyOperation.objects.create(
+        _, _, pump = self.create_product_chain(station)
+        operation = DailyOperation.objects.create(
             station=station,
             operation_date=timezone.localdate(),
             encoded_by=user,
         )
+        reading = PumpReading.objects.create(
+            daily_operation=operation,
+            pump=pump,
+            opening_reading="100.000",
+            closing_reading="110.000",
+            price_per_liter="60.00",
+        )
+        CashCollection.objects.create(daily_operation=operation, actual_cash="600.00")
+        operation.submit()
+        operation.approve(user)
         self.client.force_login(user)
 
         dashboard_response = self.client.get(reverse("dashboard"))
@@ -373,6 +388,137 @@ class RegistrationAndAccessTests(TestCase):
         self.assertContains(dashboard_response, "mobile-stack-table")
         self.assertContains(reports_response, 'class="reports-page"')
         self.assertContains(reports_response, 'data-label="Expected"')
+
+    def test_operation_page_exposes_rejection_correction_and_reopen_actions_by_status(self):
+        owner, station = self.create_owner_station()
+        _, tank, pump = self.create_product_chain(station)
+        operation = DailyOperation.objects.create(
+            station=station,
+            operation_date=timezone.localdate(),
+            encoded_by=owner,
+        )
+        reading = PumpReading.objects.create(
+            daily_operation=operation,
+            pump=pump,
+            opening_reading="100.000",
+            closing_reading="110.000",
+            price_per_liter="60.00",
+        )
+        CashCollection.objects.create(
+            daily_operation=operation,
+            actual_cash="600.00",
+        )
+        self.client.force_login(owner)
+
+        response = self.client.get(reverse("daily_operation_detail", args=[operation.pk]))
+        self.assertContains(response, 'data-confirm-title="Submit daily sale?"')
+        self.assertNotContains(response, 'id="rejection_reason"')
+
+        self.client.post(
+            reverse("daily_operation_detail", args=[operation.pk]),
+            {"action": "submit"},
+        )
+        response = self.client.get(reverse("daily_operation_detail", args=[operation.pk]))
+        self.assertContains(response, 'id="rejection_reason"')
+        self.assertNotContains(response, "Add Pump Reading")
+
+        self.client.post(
+            reverse("daily_operation_detail", args=[operation.pk]),
+            {"action": "reject", "rejection_reason": "Correct the meter."},
+        )
+        response = self.client.get(reverse("daily_operation_detail", args=[operation.pk]))
+        self.assertContains(response, "Correction required")
+        self.assertContains(response, "Correct the meter.")
+        self.assertContains(response, "Add Pump Reading")
+
+        response = self.client.post(
+            reverse("pump_reading_edit", args=[operation.pk, reading.pk]),
+            {
+                "pump": pump.pk,
+                "opening_reading": "100.000",
+                "closing_reading": "109.000",
+                "price_per_liter": "60.00",
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse("daily_operation_detail", args=[operation.pk]),
+            fetch_redirect_response=False,
+        )
+        operation.cash_collection.refresh_from_db()
+        self.assertEqual(operation.cash_collection.expected_sales, Decimal("540.00"))
+
+        self.client.post(
+            reverse("daily_operation_detail", args=[operation.pk]),
+            {"action": "submit"},
+        )
+        self.client.post(
+            reverse("daily_operation_detail", args=[operation.pk]),
+            {"action": "approve"},
+        )
+        response = self.client.get(reverse("daily_operation_detail", args=[operation.pk]))
+        self.assertContains(response, 'id="reopen_reason"')
+
+        self.client.post(
+            reverse("daily_operation_detail", args=[operation.pk]),
+            {"action": "reopen", "reopen_reason": "Correct approved values."},
+        )
+        operation.refresh_from_db()
+        tank.refresh_from_db()
+        self.assertEqual(operation.status, DailyOperation.Status.DRAFT)
+        self.assertEqual(tank.current_volume_liters, Decimal("5000.000"))
+
+    def test_official_reports_use_approved_operations_and_historical_cost(self):
+        owner, station = self.create_owner_station()
+        product, _, pump = self.create_product_chain(station)
+        month_start = timezone.localdate().replace(day=1)
+        approved_operation = DailyOperation.objects.create(
+            station=station,
+            operation_date=month_start,
+            encoded_by=owner,
+        )
+        PumpReading.objects.create(
+            daily_operation=approved_operation,
+            pump=pump,
+            opening_reading="100.000",
+            closing_reading="110.000",
+            price_per_liter="60.00",
+        )
+        CashCollection.objects.create(
+            daily_operation=approved_operation,
+            actual_cash="600.00",
+        )
+        approved_operation.submit()
+        approved_operation.approve(owner)
+
+        draft_operation = DailyOperation.objects.create(
+            station=station,
+            operation_date=month_start + timedelta(days=1),
+            encoded_by=owner,
+        )
+        PumpReading.objects.create(
+            daily_operation=draft_operation,
+            pump=pump,
+            opening_reading="110.000",
+            closing_reading="120.000",
+            price_per_liter="60.00",
+        )
+        product.cost_per_liter = Decimal("90.00")
+        product.save(update_fields=["cost_per_liter", "updated_at"])
+        self.client.force_login(owner)
+
+        response = self.client.get(
+            reverse("reports"),
+            {
+                "date": month_start.isoformat(),
+                "month": month_start.strftime("%Y-%m"),
+            },
+        )
+
+        self.assertEqual(response.context["summary"]["monthly_expected_sales"], Decimal("600.00"))
+        self.assertEqual(response.context["summary"]["monthly_fuel_cost"], Decimal("550.00000"))
+        self.assertEqual(response.context["summary"]["gross_profit"], Decimal("50.00000"))
+        self.assertEqual(list(response.context["daily_operations"]), [approved_operation])
 
     def test_password_reset_page_is_available(self):
         response = self.client.get(reverse("password_reset"))

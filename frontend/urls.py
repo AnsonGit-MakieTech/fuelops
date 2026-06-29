@@ -108,6 +108,11 @@ urlpatterns = [
         views.daily_operation_detail,
         name="daily_operation_detail",
     ),
+    path(
+        "daily-operations/<int:operation_pk>/readings/<int:reading_pk>/edit/",
+        views.pump_reading_edit,
+        name="pump_reading_edit",
+    ),
     path("fuel-deliveries/", views.fuel_deliveries, name="fuel_deliveries"),
     path("fuel-deliveries/new/", views.fuel_delivery_create, name="fuel_delivery_create"),
     path("expenses/", views.expenses, name="expenses"),

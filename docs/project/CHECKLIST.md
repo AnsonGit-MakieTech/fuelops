@@ -45,11 +45,11 @@ DONE - Make suppliers station-scoped and add supplier management pages.
 DONE - Add a dedicated tank inventory page with delivery and adjustment history.
 DONE - Build the inventory adjustment workflow with owner or manager approval.
 DONE - Enforce role permissions for owner, manager, staff, and accountant across navigation, views, forms, and reports.
-TODO - Enforce valid daily-operation state transitions and require readings and collection before approval.
-TODO - Prevent approved-operation changes at the model and admin layers and add a controlled reopen workflow.
-TODO - Add rejection notes input and correction workflow.
-TODO - Recalculate collection variance when pump readings change.
-TODO - Snapshot fuel cost on each pump reading and exclude draft or rejected operations from official profit reports.
+DONE - Enforce valid daily-operation state transitions and require readings and collection before approval.
+DONE - Prevent approved-operation changes at the model and admin layers and add a controlled reopen workflow.
+DONE - Add rejection notes input and correction workflow.
+DONE - Recalculate collection variance when pump readings change.
+DONE - Snapshot fuel cost on each pump reading and exclude draft or rejected operations from official profit reports.
 TODO - Add edit and controlled archive flows for readings, deliveries, expenses, and other financial records.
 TODO - Complete audit logs for approvals, rejections, inventory changes, edits, archives, and access changes.
 TODO - Add team member role changes, suspension, reactivation, and last-owner protection.
@@ -59,3 +59,4 @@ TODO - Add the planned dashboard and reporting API endpoints or remove them from
 TODO - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
 TODO - Run manual end-to-end QA and validate calculations with one real station.
 DONE - Run multi-product, supplier isolation, inventory adjustment, role permission, migration, and Django verification checks.
+DONE - Run operation lifecycle, correction, reopen, variance refresh, historical cost, official report, migration, and Django verification checks.

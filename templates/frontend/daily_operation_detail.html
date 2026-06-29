@@ -12,6 +12,28 @@
     </div>
   </div>
 
+  {% if operation.status == "rejected" %}
+    <div class="alert alert-danger operation-state-alert">
+      <strong>Correction required</strong>
+      <p>{{ operation.rejection_reason|default:"No rejection reason was recorded for this legacy operation." }}</p>
+    </div>
+  {% elif operation.status == "submitted" %}
+    <div class="alert alert-warning operation-state-alert">
+      <strong>Submitted for review</strong>
+      <p>Readings and collections are locked until an owner or manager approves or rejects this operation.</p>
+    </div>
+  {% elif operation.status == "approved" %}
+    <div class="alert alert-success operation-state-alert">
+      <strong>Approved and posted</strong>
+      <p>Fuel inventory has been deducted. Reopening requires a reason and reverses that deduction.</p>
+    </div>
+  {% elif operation.reopened_at %}
+    <div class="alert alert-warning operation-state-alert">
+      <strong>Reopened for correction</strong>
+      <p>{{ operation.reopen_reason }}</p>
+    </div>
+  {% endif %}
+
   <section class="grid metrics-grid" data-guide-target="operation-summary">
     <article class="dashboard-card">
       <div class="dashboard-card-label">Liters Sold</div>
@@ -54,7 +76,9 @@
                   <th>Closing</th>
                   <th>Liters</th>
                   <th>Price</th>
+                  <th>Cost Snapshot</th>
                   <th>Expected</th>
+                  {% if is_editable %}<th>Action</th>{% endif %}
                 </tr>
               </thead>
               <tbody>
@@ -66,7 +90,9 @@
                     <td class="meter-reading">{{ reading.closing_reading|floatformat:3 }}</td>
                     <td class="liters">{{ reading.liters_sold|floatformat:3 }} L</td>
                     <td class="amount">PHP {{ reading.price_per_liter|floatformat:2 }}</td>
+                    <td class="amount">PHP {{ reading.cost_per_liter|floatformat:2 }}</td>
                     <td class="amount">PHP {{ reading.expected_sales|floatformat:2 }}</td>
+                    {% if is_editable %}<td><a class="btn-icon" href="{% url 'pump_reading_edit' operation.pk reading.pk %}" aria-label="Correct {{ reading.pump.name }} reading" title="Correct reading"><i data-lucide="pencil"></i></a></td>{% endif %}
                   </tr>
                 {% endfor %}
               </tbody>
@@ -81,28 +107,39 @@
         <div class="section-title">
           <h3>Cash Collection</h3>
         </div>
-        <form method="post">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="save_collection">
-          <div class="form-grid">
-            {% include "frontend/includes/form_fields.html" with form=collection_form %}
+        {% if is_editable %}
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="save_collection">
+            <div class="form-grid">
+              {% include "frontend/includes/form_fields.html" with form=collection_form %}
+            </div>
+            <div class="button-row" style="margin-top: 18px;">
+              <button
+                class="btn-primary"
+                type="submit"
+                data-confirm-title="Save cash collection?"
+                data-confirm-message="This updates the collected cash, non-cash payments, and cash variance for this daily sale."
+                data-confirm-label="Save Collection"
+                data-confirm-variant="btn-primary"
+              ><i data-lucide="save"></i> Save Collection</button>
+            </div>
+          </form>
+        {% elif collection %}
+          <div class="readonly-breakdown">
+            <div><span>Cash</span><strong class="amount">PHP {{ collection.actual_cash|floatformat:2 }}</strong></div>
+            <div><span>Transfer</span><strong class="amount">PHP {{ collection.gcash_or_bank_transfer|floatformat:2 }}</strong></div>
+            <div><span>Cards</span><strong class="amount">PHP {{ collection.card_payments|floatformat:2 }}</strong></div>
+            <div><span>Credit</span><strong class="amount">PHP {{ collection.credit_sales|floatformat:2 }}</strong></div>
           </div>
-          <div class="button-row" style="margin-top: 18px;">
-            <button
-              class="btn-primary"
-              type="submit"
-              data-confirm-title="Save cash collection?"
-              data-confirm-message="This updates the collected cash, non-cash payments, and cash variance for this daily sale."
-              data-confirm-label="Save Collection"
-              data-confirm-variant="btn-primary"
-            ><i data-lucide="save"></i> Save Collection</button>
-          </div>
-        </form>
+        {% else %}
+          <div class="empty-state">No collection recorded.</div>
+        {% endif %}
       </article>
     </div>
 
     <aside class="grid">
-      <article class="panel" data-guide-target="operation-reading-form">
+      {% if is_editable %}<article class="panel" data-guide-target="operation-reading-form">
         <div class="section-title">
           <h3>Add Pump Reading</h3>
         </div>
@@ -123,13 +160,13 @@
             ><i data-lucide="plus"></i> Add Reading</button>
           </div>
         </form>
-      </article>
+      </article>{% endif %}
 
       <article class="panel" data-guide-target="operation-review-actions">
         <div class="section-title">
           <h3>Review Action</h3>
         </div>
-        <div class="button-row">
+        {% if is_editable %}
           <form method="post">
             {% csrf_token %}
             <input type="hidden" name="action" value="submit">
@@ -142,7 +179,8 @@
               data-confirm-variant="btn-primary"
             ><i data-lucide="send"></i> Submit</button>
           </form>
-          {% if can_approve %}
+        {% elif operation.status == "submitted" and can_approve %}
+          <div class="review-action-stack">
             <form method="post">
               {% csrf_token %}
               <input type="hidden" name="action" value="approve">
@@ -155,9 +193,13 @@
                 data-confirm-variant="btn-accent"
               ><i data-lucide="check"></i> Approve</button>
             </form>
-            <form method="post">
+            <form class="review-reason-form" method="post">
               {% csrf_token %}
               <input type="hidden" name="action" value="reject">
+              <div class="form-field">
+                <label for="rejection_reason">Rejection reason</label>
+                <textarea class="form-control" id="rejection_reason" name="rejection_reason" rows="3" required></textarea>
+              </div>
               <button
                 class="btn-danger"
                 type="submit"
@@ -167,8 +209,27 @@
                 data-confirm-variant="btn-danger"
               ><i data-lucide="x"></i> Reject</button>
             </form>
-          {% endif %}
-        </div>
+          </div>
+        {% elif operation.status == "approved" and can_approve %}
+          <form class="review-reason-form" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reopen">
+            <div class="form-field">
+              <label for="reopen_reason">Reason for reopening</label>
+              <textarea class="form-control" id="reopen_reason" name="reopen_reason" rows="3" required></textarea>
+            </div>
+            <button
+              class="btn-danger"
+              type="submit"
+              data-confirm-title="Reopen approved operation?"
+              data-confirm-message="This reverses the fuel inventory deduction and returns the operation to draft correction mode."
+              data-confirm-label="Reopen"
+              data-confirm-variant="btn-danger"
+            ><i data-lucide="rotate-ccw"></i> Reopen</button>
+          </form>
+        {% else %}
+          <div class="empty-state">No review action is available for your role or the current status.</div>
+        {% endif %}
       </article>
     </aside>
   </section>

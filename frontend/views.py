@@ -396,9 +396,10 @@ def dashboard_metrics(station):
     )
     monthly_readings = PumpReading.objects.filter(
         daily_operation__station=station,
+        daily_operation__status=DailyOperation.Status.APPROVED,
         daily_operation__operation_date__gte=month_start,
         daily_operation__operation_date__lte=today,
-    ).select_related("pump__fuel_product")
+    )
 
     today_expected_sales = sum((item.expected_sales for item in today_readings), ZERO)
     today_liters = sum((item.liters_sold for item in today_readings), ZERO)
@@ -407,7 +408,7 @@ def dashboard_metrics(station):
     today_overage = sum((item.overage for item in today_collections), ZERO)
     monthly_expected_sales = sum((item.expected_sales for item in monthly_readings), ZERO)
     monthly_fuel_cost = sum(
-        (item.liters_sold * item.pump.fuel_product.cost_per_liter for item in monthly_readings),
+        (item.liters_sold * item.cost_per_liter for item in monthly_readings),
         ZERO,
     )
     monthly_expenses = decimal_or_zero(
@@ -876,8 +877,11 @@ def daily_operation_detail(request, pk):
     if request.method == "POST":
         action = request.POST.get("action")
 
-        if action in {"add_reading", "save_collection", "submit"} and operation.status == DailyOperation.Status.APPROVED:
-            messages.error(request, "Approved daily operations cannot be changed.")
+        if action in {"add_reading", "save_collection"} and not operation.is_editable:
+            messages.error(
+                request,
+                "Readings and collections can only change while the operation is draft or rejected.",
+            )
             return redirect("daily_operation_detail", pk=operation.pk)
 
         if action == "add_reading":
@@ -903,8 +907,22 @@ def daily_operation_detail(request, pk):
                 return redirect("daily_operation_detail", pk=operation.pk)
 
         elif action == "submit":
-            operation.submit()
-            messages.success(request, "Daily operation submitted for review.")
+            try:
+                operation.submit()
+            except ValidationError as error:
+                messages.error(
+                    request,
+                    error.message_dict if hasattr(error, "message_dict") else error.messages,
+                )
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_submitted",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status},
+                )
+                messages.success(request, "Daily operation submitted for review.")
             return redirect("daily_operation_detail", pk=operation.pk)
 
         elif action == "approve":
@@ -916,6 +934,16 @@ def daily_operation_detail(request, pk):
             except ValidationError as error:
                 messages.error(request, error.message_dict if hasattr(error, "message_dict") else error.messages)
             else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_approved",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={
+                        "status": operation.status,
+                        "inventory_deducted_at": operation.inventory_deducted_at.isoformat(),
+                    },
+                )
                 messages.success(request, "Daily operation approved and inventory deducted.")
             return redirect("daily_operation_detail", pk=operation.pk)
 
@@ -923,8 +951,49 @@ def daily_operation_detail(request, pk):
             if not user_can_approve(request.user, operation.station):
                 messages.error(request, "Only owners and managers can reject operations.")
                 return redirect("daily_operation_detail", pk=operation.pk)
-            operation.reject(request.user, request.POST.get("notes", ""))
-            messages.success(request, "Daily operation rejected.")
+            reason = request.POST.get("rejection_reason", "")
+            try:
+                operation.reject(request.user, reason)
+            except ValidationError as error:
+                messages.error(
+                    request,
+                    error.message_dict if hasattr(error, "message_dict") else error.messages,
+                )
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_rejected",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status, "reason": reason.strip()},
+                )
+                messages.success(request, "Daily operation rejected for correction.")
+            return redirect("daily_operation_detail", pk=operation.pk)
+
+        elif action == "reopen":
+            if not user_can_approve(request.user, operation.station):
+                messages.error(request, "Only owners and managers can reopen operations.")
+                return redirect("daily_operation_detail", pk=operation.pk)
+            reason = request.POST.get("reopen_reason", "")
+            try:
+                operation.reopen(request.user, reason)
+            except ValidationError as error:
+                messages.error(
+                    request,
+                    error.message_dict if hasattr(error, "message_dict") else error.messages,
+                )
+            else:
+                AuditLog.objects.create(
+                    user=request.user,
+                    action="daily_operation_reopened",
+                    model_name="DailyOperation",
+                    object_id=str(operation.pk),
+                    new_value={"status": operation.status, "reason": reason.strip()},
+                )
+                messages.success(
+                    request,
+                    "Operation reopened and the previous inventory deduction was reversed.",
+                )
             return redirect("daily_operation_detail", pk=operation.pk)
 
     readings = operation.readings.select_related("pump", "pump__fuel_product").order_by("pump__name")
@@ -940,6 +1009,54 @@ def daily_operation_detail(request, pk):
             "collection_form": collection_form,
             "collection": collection_instance,
             "can_approve": user_can_approve(request.user, operation.station),
+            "is_editable": operation.is_editable,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def pump_reading_edit(request, operation_pk, reading_pk):
+    operation = get_object_or_404(
+        DailyOperation.objects.filter(
+            station__in=stations_for_user_with_permission(
+                request.user,
+                ENCODE_OPERATIONS,
+            )
+        ),
+        pk=operation_pk,
+    )
+    reading = get_object_or_404(
+        PumpReading,
+        pk=reading_pk,
+        daily_operation=operation,
+    )
+    if not operation.is_editable:
+        messages.error(
+            request,
+            "Readings can only be corrected while the operation is draft or rejected.",
+        )
+        return redirect("daily_operation_detail", pk=operation.pk)
+
+    form = PumpReadingForm(
+        request.POST or None,
+        instance=reading,
+        station=operation.station,
+        daily_operation=operation,
+    )
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Pump reading corrected and collection variance recalculated.")
+        return redirect("daily_operation_detail", pk=operation.pk)
+
+    return render(
+        request,
+        "frontend/pump_reading_form.html",
+        {
+            "page_title": "Correct Pump Reading",
+            "station": operation.station,
+            "operation": operation,
+            "form": form,
         },
     )
 
@@ -1080,18 +1197,20 @@ def reports(request):
 
     daily_operations_for_date = DailyOperation.objects.filter(
         station=station,
+        status=DailyOperation.Status.APPROVED,
         operation_date=report_date,
     ).select_related("station", "encoded_by", "approved_by") if station else []
 
     monthly_readings = PumpReading.objects.filter(
         daily_operation__station=station,
+        daily_operation__status=DailyOperation.Status.APPROVED,
         daily_operation__operation_date__gte=month_start,
         daily_operation__operation_date__lt=month_end,
-    ).select_related("pump__fuel_product") if station else []
+    ) if station else []
     monthly_expected_sales = sum((item.expected_sales for item in monthly_readings), ZERO)
     monthly_liters = sum((item.liters_sold for item in monthly_readings), ZERO)
     monthly_fuel_cost = sum(
-        (item.liters_sold * item.pump.fuel_product.cost_per_liter for item in monthly_readings),
+        (item.liters_sold * item.cost_per_liter for item in monthly_readings),
         ZERO,
     )
     monthly_expenses = decimal_or_zero(
@@ -1106,6 +1225,7 @@ def reports(request):
             item.shortage
             for item in CashCollection.objects.filter(
                 daily_operation__station=station,
+                daily_operation__status=DailyOperation.Status.APPROVED,
                 daily_operation__operation_date__gte=month_start,
                 daily_operation__operation_date__lt=month_end,
             )
@@ -1117,6 +1237,7 @@ def reports(request):
             item.overage
             for item in CashCollection.objects.filter(
                 daily_operation__station=station,
+                daily_operation__status=DailyOperation.Status.APPROVED,
                 daily_operation__operation_date__gte=month_start,
                 daily_operation__operation_date__lt=month_end,
             )

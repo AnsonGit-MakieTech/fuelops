@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h2>Correct Pump Reading</h2>
+      <p>{{ operation.station.name }} / {{ operation.operation_date }}</p>
+    </div>
+  </div>
+
+  <section class="panel setup-panel">
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-grid">
+        {% include "frontend/includes/form_fields.html" with form=form %}
+      </div>
+      <div class="button-row" style="margin-top: 18px;">
+        <button
+          class="btn-accent"
+          type="submit"
+          data-confirm-title="Save corrected reading?"
+          data-confirm-message="Expected sales and collection variance will be recalculated from the corrected meter values."
+          data-confirm-label="Save Correction"
+          data-confirm-variant="btn-accent"
+        ><i data-lucide="save"></i> Save Correction</button>
+        <a class="btn-ghost" href="{% url 'daily_operation_detail' operation.pk %}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

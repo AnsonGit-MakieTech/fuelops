@@ -27,7 +27,7 @@
             <p class="nav-section-title">Main</p>
             <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i data-lucide="gauge"></i> Dashboard</a>
             {% if station_permissions.encode_operations %}
-              <a class="nav-link {% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_create' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Daily Sales</a>
+              <a class="nav-link {% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_create' or request.resolver_match.url_name == 'daily_operation_detail' or request.resolver_match.url_name == 'pump_reading_edit' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Daily Sales</a>
             {% endif %}
           </section>
 
@@ -162,7 +162,7 @@
     <nav class="bottom-nav">
       <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><i data-lucide="gauge"></i> Today</a>
       {% if station_permissions.encode_operations %}
-        <a class="{% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_detail' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Sales</a>
+        <a class="{% if request.resolver_match.url_name == 'daily_operations' or request.resolver_match.url_name == 'daily_operation_detail' or request.resolver_match.url_name == 'pump_reading_edit' %}active{% endif %}" href="{% url 'daily_operations' %}"><i data-lucide="receipt"></i> Sales</a>
       {% endif %}
       {% if station_permissions.view_inventory %}
         <a class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}" href="{% url 'inventory' %}"><i data-lucide="database"></i> Stock</a>

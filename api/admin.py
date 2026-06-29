@@ -1,4 +1,5 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 
 from .models import (
     AuditLog,
@@ -22,7 +23,18 @@ from .models import (
 class PumpReadingInline(admin.TabularInline):
     model = PumpReading
     extra = 0
-    readonly_fields = ("liters_sold", "expected_sales")
+    readonly_fields = ("liters_sold", "cost_per_liter", "expected_sales")
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.is_editable
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.is_editable
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and not obj.is_editable:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
 
 
 class CashCollectionInline(admin.StackedInline):
@@ -30,6 +42,17 @@ class CashCollectionInline(admin.StackedInline):
     extra = 0
     max_num = 1
     readonly_fields = ("expected_sales", "shortage", "overage")
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.is_editable
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.is_editable
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and not obj.is_editable:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
 
 
 @admin.register(Station)
@@ -115,24 +138,52 @@ class DailyOperationAdmin(admin.ModelAdmin):
     )
     list_filter = ("status", "station", "operation_date")
     search_fields = ("station__name", "encoded_by__username", "approved_by__username")
-    readonly_fields = ("inventory_deducted_at",)
+    readonly_fields = (
+        "status",
+        "approved_by",
+        "inventory_deducted_at",
+        "rejection_reason",
+        "reopened_by",
+        "reopened_at",
+        "reopen_reason",
+    )
     inlines = [PumpReadingInline, CashCollectionInline]
-    actions = ("approve_operations", "submit_operations", "reject_operations")
+    actions = ("approve_operations", "submit_operations", "reopen_operations")
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(self.readonly_fields)
+        if obj and not obj.is_editable:
+            fields.extend(["station", "operation_date", "encoded_by", "notes"])
+        return tuple(dict.fromkeys(fields))
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and not obj.is_editable:
+            return False
+        return super().has_delete_permission(request, obj)
 
     @admin.action(description="Submit selected daily operations")
     def submit_operations(self, request, queryset):
         for operation in queryset:
-            operation.submit()
+            try:
+                operation.submit()
+            except ValidationError as error:
+                self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
 
     @admin.action(description="Approve selected daily operations")
     def approve_operations(self, request, queryset):
         for operation in queryset:
-            operation.approve(request.user)
+            try:
+                operation.approve(request.user)
+            except ValidationError as error:
+                self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
 
-    @admin.action(description="Reject selected daily operations")
-    def reject_operations(self, request, queryset):
+    @admin.action(description="Reopen selected approved operations")
+    def reopen_operations(self, request, queryset):
         for operation in queryset:
-            operation.reject(request.user)
+            try:
+                operation.reopen(request.user, "Reopened from Django admin.")
+            except ValidationError as error:
+                self.message_user(request, f"{operation}: {error}", level=messages.ERROR)
 
 
 @admin.register(PumpReading)
@@ -144,6 +195,7 @@ class PumpReadingAdmin(admin.ModelAdmin):
         "closing_reading",
         "liters_sold",
         "price_per_liter",
+        "cost_per_liter",
         "expected_sales",
     )
     list_filter = ("daily_operation__station", "pump__fuel_product")
