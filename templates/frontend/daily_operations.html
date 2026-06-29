@@ -46,6 +46,7 @@
         </tbody>
       </table>
     </div>
+    {% include "frontend/includes/pagination.html" with page_obj=operations page_param="page" pagination_query=operations_query %}
   {% else %}
     <div class="empty-state" data-guide-target="daily-sales-history">No daily sales created yet.</div>
   {% endif %}

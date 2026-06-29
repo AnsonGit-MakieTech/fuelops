@@ -58,6 +58,7 @@
         </tbody>
       </table>
     </div>
+    {% include "frontend/includes/pagination.html" with page_obj=expenses page_param="page" pagination_query=expenses_query %}
   {% else %}
     <div class="empty-state" data-guide-target="expense-history">No expenses recorded.</div>
   {% endif %}

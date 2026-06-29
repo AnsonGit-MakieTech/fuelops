@@ -57,6 +57,7 @@
         </tbody>
       </table>
     </div>
+    {% include "frontend/includes/pagination.html" with page_obj=deliveries page_param="page" pagination_query=deliveries_query %}
   {% else %}
     <div class="empty-state" data-guide-target="fuel-refill-history">No fuel deliveries recorded.</div>
   {% endif %}

@@ -142,9 +142,11 @@ def monthly_report(request):
             ],
             "inventory_movements": [
                 {
-                    **item,
                     "date": item["date"].isoformat(),
-                    "liters": str(item["liters"]),
+                    "type": item["type"],
+                    "tank": item["tank_name"],
+                    "liters": str(item["movement_liters"]),
+                    "reference": item["reference"],
                 }
                 for item in report["inventory_movements"]
             ],

@@ -1,7 +1,17 @@
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import (
+    Case,
+    CharField,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.utils import timezone
 
 from api.models import (
@@ -11,10 +21,30 @@ from api.models import (
     FuelDelivery,
     InventoryAdjustment,
     PumpReading,
+    liters,
+    money,
 )
 
 
 ZERO = Decimal("0")
+
+
+def with_operation_totals(queryset):
+    return queryset.select_related(
+        "station",
+        "encoded_by",
+        "approved_by",
+        "cash_collection",
+    ).annotate(
+        annotated_total_liters_sold=Sum(
+            "readings__liters_sold",
+            filter=Q(readings__is_archived=False),
+        ),
+        annotated_total_expected_sales=Sum(
+            "readings__expected_sales",
+            filter=Q(readings__is_archived=False),
+        ),
+    )
 
 
 def month_bounds(month_value):
@@ -42,23 +72,60 @@ def date_range(date_from_value, date_to_value):
     return date_from, date_to
 
 
-def build_report(station, date_from, date_to, month_start, month_end):
-    operations = DailyOperation.objects.filter(
+def inventory_movement_queryset(station, month_start, month_end):
+    deliveries = FuelDelivery.objects.filter(
         station=station,
-        status=DailyOperation.Status.APPROVED,
+        delivery_date__gte=month_start,
+        delivery_date__lt=month_end,
         is_archived=False,
-        operation_date__range=(date_from, date_to),
-    ).select_related("station", "encoded_by", "approved_by")
+    ).order_by().annotate(
+        date=F("delivery_date"),
+        type=Value("Delivery", output_field=CharField()),
+        tank_name=F("tank__name"),
+        movement_liters=F("liters_delivered"),
+        reference=Case(
+            When(invoice_number="", then=F("supplier__name")),
+            default=F("invoice_number"),
+            output_field=CharField(),
+        ),
+    ).values("date", "type", "tank_name", "movement_liters", "reference")
+    adjustments = InventoryAdjustment.objects.filter(
+        station=station,
+        adjustment_date__gte=month_start,
+        adjustment_date__lt=month_end,
+        applied_at__isnull=False,
+    ).order_by().annotate(
+        date=F("adjustment_date"),
+        type=Case(
+            When(adjustment_type=InventoryAdjustment.AdjustmentType.GAIN, then=Value("Gain")),
+            When(adjustment_type=InventoryAdjustment.AdjustmentType.LOSS, then=Value("Loss")),
+            default=Value("Correction"),
+            output_field=CharField(),
+        ),
+        tank_name=F("tank__name"),
+        movement_liters=F("liters"),
+        reference=F("reason"),
+    ).values("date", "type", "tank_name", "movement_liters", "reference")
+    return deliveries.union(adjustments, all=True).order_by("-date", "-type")
 
-    readings = list(
-        PumpReading.objects.filter(
-            daily_operation__station=station,
-            daily_operation__status=DailyOperation.Status.APPROVED,
-            daily_operation__is_archived=False,
-            daily_operation__operation_date__gte=month_start,
-            daily_operation__operation_date__lt=month_end,
+
+def build_report(station, date_from, date_to, month_start, month_end):
+    operations = with_operation_totals(
+        DailyOperation.objects.filter(
+            station=station,
+            status=DailyOperation.Status.APPROVED,
             is_archived=False,
-        ).select_related("pump__fuel_product")
+            operation_date__range=(date_from, date_to),
+        )
+    )
+
+    readings = PumpReading.objects.filter(
+        daily_operation__station=station,
+        daily_operation__status=DailyOperation.Status.APPROVED,
+        daily_operation__is_archived=False,
+        daily_operation__operation_date__gte=month_start,
+        daily_operation__operation_date__lt=month_end,
+        is_archived=False,
     )
     expenses = Expense.objects.filter(
         station=station,
@@ -66,14 +133,12 @@ def build_report(station, date_from, date_to, month_start, month_end):
         expense_date__lt=month_end,
         is_archived=False,
     ).select_related("category", "encoded_by")
-    deliveries = list(
-        FuelDelivery.objects.filter(
-            station=station,
-            delivery_date__gte=month_start,
-            delivery_date__lt=month_end,
-            is_archived=False,
-        ).select_related("fuel_product", "tank", "supplier")
-    )
+    deliveries = FuelDelivery.objects.filter(
+        station=station,
+        delivery_date__gte=month_start,
+        delivery_date__lt=month_end,
+        is_archived=False,
+    ).select_related("fuel_product", "tank", "supplier")
     collections = CashCollection.objects.filter(
         daily_operation__station=station,
         daily_operation__status=DailyOperation.Status.APPROVED,
@@ -82,62 +147,53 @@ def build_report(station, date_from, date_to, month_start, month_end):
         daily_operation__operation_date__lt=month_end,
     )
 
-    expected_sales = sum((item.expected_sales for item in readings), ZERO)
-    liters_sold = sum((item.liters_sold for item in readings), ZERO)
-    fuel_cost = sum((item.liters_sold * item.cost_per_liter for item in readings), ZERO)
-    expense_total = expenses.aggregate(total=Sum("amount"))["total"] or ZERO
-    delivery_liters = sum((item.liters_delivered for item in deliveries), ZERO)
-    delivery_cost = sum((item.total_cost for item in deliveries), ZERO)
-    shortage = sum((item.shortage for item in collections), ZERO)
-    overage = sum((item.overage for item in collections), ZERO)
-
-    product_map = {}
-    for reading in readings:
-        product = reading.pump.fuel_product
-        totals = product_map.setdefault(
-            product.pk,
-            {
-                "name": product.name,
-                "code": product.code,
-                "liters": ZERO,
-                "sales": ZERO,
-                "fuel_cost": ZERO,
-                "gross_profit": ZERO,
-            },
-        )
-        line_cost = reading.liters_sold * reading.cost_per_liter
-        totals["liters"] += reading.liters_sold
-        totals["sales"] += reading.expected_sales
-        totals["fuel_cost"] += line_cost
-        totals["gross_profit"] += reading.expected_sales - line_cost
-
-    adjustments = InventoryAdjustment.objects.filter(
-        station=station,
-        adjustment_date__gte=month_start,
-        adjustment_date__lt=month_end,
-        applied_at__isnull=False,
-    ).select_related("tank", "approved_by")
-    movements = [
-        {
-            "date": delivery.delivery_date,
-            "type": "Delivery",
-            "tank": delivery.tank.name,
-            "liters": delivery.liters_delivered,
-            "reference": delivery.invoice_number or delivery.supplier.name,
-        }
-        for delivery in deliveries
-    ]
-    movements.extend(
-        {
-            "date": adjustment.adjustment_date,
-            "type": adjustment.get_adjustment_type_display(),
-            "tank": adjustment.tank.name,
-            "liters": adjustment.liters,
-            "reference": adjustment.reason,
-        }
-        for adjustment in adjustments
+    line_cost = ExpressionWrapper(
+        F("liters_sold") * F("cost_per_liter"),
+        output_field=DecimalField(max_digits=24, decimal_places=5),
     )
-    movements.sort(key=lambda item: (item["date"], item["type"]), reverse=True)
+    reading_totals = readings.aggregate(
+        liters=Sum("liters_sold"),
+        sales=Sum("expected_sales"),
+        fuel_cost=Sum(line_cost),
+    )
+    expected_sales = reading_totals["sales"] or ZERO
+    liters_sold = reading_totals["liters"] or ZERO
+    fuel_cost = reading_totals["fuel_cost"] or ZERO
+    expense_total = expenses.aggregate(total=Sum("amount"))["total"] or ZERO
+    delivery_totals = deliveries.aggregate(
+        liters=Sum("liters_delivered"),
+        cost=Sum("total_cost"),
+    )
+    delivery_liters = delivery_totals["liters"] or ZERO
+    delivery_cost = delivery_totals["cost"] or ZERO
+    collection_totals = collections.aggregate(
+        shortage=Sum("shortage"),
+        overage=Sum("overage"),
+    )
+    shortage = collection_totals["shortage"] or ZERO
+    overage = collection_totals["overage"] or ZERO
+
+    product_totals = []
+    for totals in readings.values(
+        "pump__fuel_product__name",
+        "pump__fuel_product__code",
+    ).annotate(
+        liters=Sum("liters_sold"),
+        sales=Sum("expected_sales"),
+        fuel_cost=Sum(line_cost),
+    ).order_by("pump__fuel_product__name"):
+        product_totals.append(
+            {
+                "name": totals["pump__fuel_product__name"],
+                "code": totals["pump__fuel_product__code"],
+                "liters": liters(totals["liters"]),
+                "sales": money(totals["sales"]),
+                "fuel_cost": money(totals["fuel_cost"]),
+                "gross_profit": money(
+                    (totals["sales"] or ZERO) - (totals["fuel_cost"] or ZERO)
+                ),
+            }
+        )
 
     gross_profit = expected_sales - fuel_cost
     return {
@@ -145,8 +201,12 @@ def build_report(station, date_from, date_to, month_start, month_end):
         "expenses": expenses,
         "deliveries": deliveries,
         "expense_categories": expenses.values("category__name").annotate(total=Sum("amount")).order_by("category__name"),
-        "product_totals": sorted(product_map.values(), key=lambda item: item["name"]),
-        "inventory_movements": movements,
+        "product_totals": product_totals,
+        "inventory_movements": inventory_movement_queryset(
+            station,
+            month_start,
+            month_end,
+        ),
         "summary": {
             "monthly_liters": liters_sold,
             "monthly_expected_sales": expected_sales,

@@ -527,6 +527,38 @@ textarea {
   width: min(100%, 360px);
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 2px 2px;
+}
+
+.pagination-summary,
+.pagination-current {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-current {
+  min-width: 92px;
+  text-align: center;
+}
+
+.btn-icon.is-disabled {
+  cursor: default;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .member-role-form {
   display: flex;
   align-items: center;
@@ -1071,6 +1103,15 @@ body.is-guided-tour-open {
   .report-export-bar form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pagination-actions {
+    justify-content: space-between;
   }
 }
 

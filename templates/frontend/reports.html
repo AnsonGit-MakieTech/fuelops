@@ -123,6 +123,7 @@
             </tbody>
           </table>
         </div>
+        {% include "frontend/includes/pagination.html" with page_obj=daily_operations page_param="sales_page" pagination_query=sales_query %}
       {% else %}
         <div class="empty-state">No approved sales found for this date range.</div>
       {% endif %}
@@ -212,14 +213,15 @@
                 <tr>
                   <td data-label="Date">{{ movement.date }}</td>
                   <td data-label="Type">{{ movement.type }}</td>
-                  <td data-label="Tank">{{ movement.tank }}</td>
-                  <td class="liters" data-label="Liters">{{ movement.liters|floatformat:3 }} L</td>
+                  <td data-label="Tank">{{ movement.tank_name }}</td>
+                  <td class="liters" data-label="Liters">{{ movement.movement_liters|floatformat:3 }} L</td>
                   <td data-label="Reference">{{ movement.reference }}</td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+        {% include "frontend/includes/pagination.html" with page_obj=inventory_movements page_param="movement_page" pagination_query=movements_query %}
       {% else %}
         <div class="empty-state">No inventory movements found for this month.</div>
       {% endif %}

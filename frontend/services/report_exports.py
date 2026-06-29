@@ -102,8 +102,8 @@ def build_sections(report_type, report):
                 [
                     movement["date"].isoformat(),
                     movement["type"],
-                    movement["tank"],
-                    volume(movement["liters"]),
+                    movement["tank_name"],
+                    volume(movement["movement_liters"]),
                     movement["reference"],
                 ]
                 for movement in report["inventory_movements"]

@@ -10,6 +10,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -77,7 +78,7 @@ from .audit import log_audit
 from .guides import GUIDE_VERSION, VALID_GUIDE_KEYS
 from .models import GuidedTourProgress
 from .security import request_is_rate_limited
-from .services.reporting import build_report, date_range, month_bounds
+from .services.reporting import build_report, date_range, month_bounds, with_operation_totals
 from .services.report_exports import (
     REPORT_FORMATS,
     REPORT_TYPES,
@@ -101,6 +102,14 @@ from .services.registration import (
 
 
 ZERO = Decimal("0")
+
+
+def paginate(request, queryset, *, page_param="page", per_page=20):
+    paginator = Paginator(queryset, per_page)
+    page_obj = paginator.get_page(request.GET.get(page_param))
+    query = request.GET.copy()
+    query.pop(page_param, None)
+    return page_obj, query.urlencode()
 
 
 @require_http_methods(["GET", "POST"])
@@ -374,6 +383,13 @@ def team_members(request):
     else:
         form = InviteMemberForm(station=station)
 
+    members, members_query = paginate(
+        request,
+        station.memberships.select_related("user", "invited_by").order_by(
+            "role",
+            "user__username",
+        ),
+    )
     return render(
         request,
         "frontend/team.html",
@@ -381,7 +397,8 @@ def team_members(request):
             "page_title": "Team",
             "station": station,
             "form": form,
-            "members": station.memberships.select_related("user", "invited_by").order_by("role", "user__username"),
+            "members": members,
+            "members_query": members_query,
             "can_manage_owners": request.user.is_superuser
             or station.memberships.filter(
                 user=request.user,
@@ -714,13 +731,18 @@ def pump_edit(request, pk=None):
 @login_required
 def suppliers(request):
     station = permitted_current_station(request, MANAGE_CATALOG)
+    suppliers_page, suppliers_query = paginate(
+        request,
+        station.suppliers.order_by("name"),
+    )
     return render(
         request,
         "frontend/settings/suppliers.html",
         {
             "page_title": "Suppliers",
             "station": station,
-            "suppliers": station.suppliers.all(),
+            "suppliers": suppliers_page,
+            "suppliers_query": suppliers_query,
         },
     )
 
@@ -761,6 +783,25 @@ def supplier_edit(request, pk=None):
 def inventory(request):
     station = permitted_current_station(request, VIEW_INVENTORY)
     tanks = station.tanks.select_related("fuel_product").all()
+    deliveries, deliveries_query = paginate(
+        request,
+        station.fuel_deliveries.filter(is_archived=False)
+        .select_related("fuel_product", "tank", "supplier", "received_by")
+        .order_by("-delivery_date", "-pk"),
+        page_param="delivery_page",
+        per_page=10,
+    )
+    adjustments, adjustments_query = paginate(
+        request,
+        station.inventory_adjustments.select_related(
+            "tank",
+            "tank__fuel_product",
+            "encoded_by",
+            "approved_by",
+        ).order_by("-adjustment_date", "-pk"),
+        page_param="adjustment_page",
+        per_page=10,
+    )
     return render(
         request,
         "frontend/inventory.html",
@@ -768,18 +809,10 @@ def inventory(request):
             "page_title": "Fuel Inventory",
             "station": station,
             "tanks": tanks,
-            "deliveries": station.fuel_deliveries.filter(is_archived=False).select_related(
-                "fuel_product",
-                "tank",
-                "supplier",
-                "received_by",
-            )[:25],
-            "adjustments": station.inventory_adjustments.select_related(
-                "tank",
-                "tank__fuel_product",
-                "encoded_by",
-                "approved_by",
-            )[:25],
+            "deliveries": deliveries,
+            "deliveries_query": deliveries_query,
+            "adjustments": adjustments,
+            "adjustments_query": adjustments_query,
             "can_create_adjustments": user_has_station_permission(
                 request.user,
                 station,
@@ -943,12 +976,12 @@ def dashboard(request):
 @login_required
 def daily_operations(request):
     station = permitted_current_station(request, ENCODE_OPERATIONS)
-    operations = (
-        DailyOperation.objects.filter(station=station, is_archived=False)
-        .select_related("station", "encoded_by", "approved_by")
-        .order_by("-operation_date")
-        if station
-        else []
+    operations, operations_query = paginate(
+        request,
+        with_operation_totals(
+            DailyOperation.objects.filter(station=station, is_archived=False)
+        )
+        .order_by("-operation_date", "-pk"),
     )
     return render(
         request,
@@ -957,6 +990,7 @@ def daily_operations(request):
             "page_title": "Daily Sales",
             "station": station,
             "operations": operations,
+            "operations_query": operations_query,
         },
     )
 
@@ -1309,16 +1343,19 @@ def pump_reading_archive(request, operation_pk, reading_pk):
 @login_required
 def fuel_deliveries(request):
     station = permitted_current_station(request, MANAGE_DELIVERIES)
-    deliveries = FuelDelivery.objects.filter(
-        station=station,
-        is_archived=False,
-    ).select_related(
-        "station",
-        "fuel_product",
-        "tank",
-        "supplier",
-        "received_by",
-    ).order_by("-delivery_date")[:100]
+    deliveries, deliveries_query = paginate(
+        request,
+        FuelDelivery.objects.filter(
+            station=station,
+            is_archived=False,
+        ).select_related(
+            "station",
+            "fuel_product",
+            "tank",
+            "supplier",
+            "received_by",
+        ).order_by("-delivery_date", "-pk"),
+    )
     return render(
         request,
         "frontend/fuel_deliveries.html",
@@ -1326,6 +1363,7 @@ def fuel_deliveries(request):
             "page_title": "Fuel Refill",
             "station": station,
             "deliveries": deliveries,
+            "deliveries_query": deliveries_query,
         },
     )
 
@@ -1450,14 +1488,17 @@ def fuel_delivery_archive(request, pk):
 @login_required
 def expenses(request):
     station = permitted_current_station(request, MANAGE_EXPENSES)
-    items = Expense.objects.filter(
-        station=station,
-        is_archived=False,
-    ).select_related(
-        "station",
-        "category",
-        "encoded_by",
-    ).order_by("-expense_date")[:100]
+    items, expenses_query = paginate(
+        request,
+        Expense.objects.filter(
+            station=station,
+            is_archived=False,
+        ).select_related(
+            "station",
+            "category",
+            "encoded_by",
+        ).order_by("-expense_date", "-pk"),
+    )
     return render(
         request,
         "frontend/expenses.html",
@@ -1465,6 +1506,7 @@ def expenses(request):
             "page_title": "Expenses",
             "station": station,
             "expenses": items,
+            "expenses_query": expenses_query,
         },
     )
 
@@ -1472,6 +1514,10 @@ def expenses(request):
 @login_required
 def expense_categories(request):
     station = permitted_current_station(request, MANAGE_CATALOG)
+    station_categories, categories_query = paginate(
+        request,
+        station.expense_categories.order_by("name"),
+    )
     return render(
         request,
         "frontend/expense_categories.html",
@@ -1479,7 +1525,8 @@ def expense_categories(request):
             "page_title": "Expense Categories",
             "station": station,
             "system_categories": ExpenseCategory.objects.filter(station__isnull=True),
-            "station_categories": station.expense_categories.all(),
+            "station_categories": station_categories,
+            "categories_query": categories_query,
         },
     )
 
@@ -1674,6 +1721,16 @@ def report_context(request):
 @login_required
 def reports(request):
     context = report_context(request)
+    context["daily_operations"], context["sales_query"] = paginate(
+        request,
+        context["daily_operations"].order_by("-operation_date", "-pk"),
+        page_param="sales_page",
+    )
+    context["inventory_movements"], context["movements_query"] = paginate(
+        request,
+        context["inventory_movements"],
+        page_param="movement_page",
+    )
 
     return render(
         request,

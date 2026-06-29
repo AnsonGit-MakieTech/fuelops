@@ -10,7 +10,7 @@
 
   <section class="grid two-column">
     <article class="panel">
-      <div class="section-title"><h3>Members</h3><span class="badge badge-info">{{ members|length }}</span></div>
+      <div class="section-title"><h3>Members</h3><span class="badge badge-info">{{ members.paginator.count }}</span></div>
       <div class="table-wrapper">
         <table class="table compact-table mobile-stack-table">
           <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Joined</th><th>Action</th></tr></thead>
@@ -61,6 +61,7 @@
           </tbody>
         </table>
       </div>
+      {% include "frontend/includes/pagination.html" with page_obj=members page_param="page" pagination_query=members_query %}
     </article>
 
     <aside class="grid">

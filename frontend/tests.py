@@ -6,7 +6,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core import mail
+from django.db import connection
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -16,6 +18,7 @@ from api.models import (
     AuditLog,
     CashCollection,
     DailyOperation,
+    Expense,
     ExpenseCategory,
     FuelDelivery,
     FuelProduct,
@@ -996,3 +999,104 @@ class RegistrationAndAccessTests(TestCase):
             ).status_code,
             400,
         )
+
+    def test_growing_operational_tables_use_database_pagination(self):
+        owner, station = self.create_owner_station()
+        product, tank, _ = self.create_product_chain(station)
+        supplier = Supplier.objects.create(station=station, name="Pagination Supplier")
+        category = ExpenseCategory.objects.create(station=station, name="Pagination Cost")
+        today = timezone.localdate()
+        for index in range(25):
+            DailyOperation.objects.create(
+                station=station,
+                operation_date=today - timedelta(days=index),
+                encoded_by=owner,
+            )
+        for index in range(21):
+            FuelDelivery.objects.create(
+                station=station,
+                fuel_product=product,
+                tank=tank,
+                supplier=supplier,
+                delivery_date=today,
+                liters_delivered="1.000",
+                cost_per_liter="50.00",
+                received_by=owner,
+                invoice_number=f"PAGE-{index}",
+            )
+            Expense.objects.create(
+                station=station,
+                category=category,
+                expense_date=today,
+                amount="10.00",
+                encoded_by=owner,
+                reference_number=f"EXP-{index}",
+            )
+        self.client.force_login(owner)
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("daily_operations"), {"page": 2})
+        self.assertEqual(response.context["operations"].paginator.count, 25)
+        self.assertEqual(len(response.context["operations"]), 5)
+        self.assertTrue(
+            any(
+                "api_dailyoperation" in query["sql"]
+                and "LIMIT" in query["sql"]
+                and "OFFSET 20" in query["sql"]
+                for query in queries.captured_queries
+            )
+        )
+        self.assertContains(response, "Page 2 of 2")
+
+        response = self.client.get(reverse("fuel_deliveries"), {"page": 2})
+        self.assertEqual(response.context["deliveries"].paginator.count, 21)
+        self.assertEqual(len(response.context["deliveries"]), 1)
+        response = self.client.get(reverse("expenses"), {"page": 2})
+        self.assertEqual(response.context["expenses"].paginator.count, 21)
+        self.assertEqual(len(response.context["expenses"]), 1)
+        response = self.client.get(
+            reverse("reports"),
+            {
+                "month": today.strftime("%Y-%m"),
+                "movement_page": 2,
+            },
+        )
+        self.assertEqual(response.context["inventory_movements"].paginator.count, 21)
+        self.assertEqual(len(response.context["inventory_movements"]), 1)
+
+    def test_independent_inventory_paginators_preserve_table_pages(self):
+        owner, station = self.create_owner_station()
+        product, tank, _ = self.create_product_chain(station)
+        supplier = Supplier.objects.create(station=station, name="Inventory Page Supplier")
+        today = timezone.localdate()
+        for index in range(11):
+            FuelDelivery.objects.create(
+                station=station,
+                fuel_product=product,
+                tank=tank,
+                supplier=supplier,
+                delivery_date=today,
+                liters_delivered="1.000",
+                cost_per_liter="50.00",
+                received_by=owner,
+                invoice_number=f"INV-PAGE-{index}",
+            )
+            InventoryAdjustment.objects.create(
+                station=station,
+                tank=tank,
+                adjustment_date=today,
+                adjustment_type=InventoryAdjustment.AdjustmentType.GAIN,
+                liters="1.000",
+                reason=f"Pagination adjustment {index}",
+                encoded_by=owner,
+            )
+        self.client.force_login(owner)
+
+        response = self.client.get(
+            reverse("inventory"),
+            {"delivery_page": 2, "adjustment_page": 2},
+        )
+        self.assertEqual(len(response.context["deliveries"]), 1)
+        self.assertEqual(len(response.context["adjustments"]), 1)
+        self.assertContains(response, "adjustment_page=2&amp;delivery_page=1")
+        self.assertContains(response, "delivery_page=2&amp;adjustment_page=1")

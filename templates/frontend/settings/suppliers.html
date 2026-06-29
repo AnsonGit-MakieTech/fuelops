@@ -30,6 +30,7 @@
         </tbody>
       </table>
     </div>
+    {% include "frontend/includes/pagination.html" with page_obj=suppliers page_param="page" pagination_query=suppliers_query %}
   {% else %}
     <div class="empty-state">No suppliers configured.</div>
   {% endif %}

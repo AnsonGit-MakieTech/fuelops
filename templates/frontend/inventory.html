@@ -68,6 +68,7 @@
           </tbody>
         </table>
       </div>
+      {% include "frontend/includes/pagination.html" with page_obj=adjustments page_param="adjustment_page" pagination_query=adjustments_query %}
     {% else %}
       <div class="empty-state">No inventory adjustments recorded.</div>
     {% endif %}
@@ -93,6 +94,7 @@
           </tbody>
         </table>
       </div>
+      {% include "frontend/includes/pagination.html" with page_obj=deliveries page_param="delivery_page" pagination_query=deliveries_query %}
     {% else %}
       <div class="empty-state">No fuel deliveries recorded.</div>
     {% endif %}

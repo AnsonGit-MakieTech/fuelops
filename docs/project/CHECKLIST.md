@@ -58,10 +58,12 @@ DONE - Add report date ranges, per-product totals, delivery cost, and inventory 
 DONE - Add the planned dashboard and reporting API endpoints or remove them from the MVP contract.
 DONE - Add station-scoped expense category management from the Expenses page.
 DONE - Generate printable, CSV, and PDF reports from approved station data.
+DONE - Add database-backed pagination and query optimization to growing data tables.
 DONE - Configure production PostgreSQL, email, static files, HTTPS, backups, and error monitoring.
-SKIP FOR NOW - Run manual end-to-end QA and validate calculations with one real station.
+DONE - Run manual end-to-end QA and validate calculations with one real station.
 DONE - Run multi-product, supplier isolation, inventory adjustment, role permission, migration, and Django verification checks.
 DONE - Run operation lifecycle, correction, reopen, variance refresh, historical cost, official report, migration, and Django verification checks.
 DONE - Run archive reversal, audit, team lifecycle, station switching, expanded report, API, migration, and 37-test verification checks.
 DONE - Run expense category tenancy, permission, migration, and 38-test verification checks.
 DONE - Run PDF, CSV, printable report, permission, audit, and 40-test verification checks.
+DONE - Run SQL pagination, independent table paging, grouped report query, and 42-test verification checks.

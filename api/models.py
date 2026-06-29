@@ -404,12 +404,16 @@ class DailyOperation(ArchivableModel):
 
     @property
     def total_liters_sold(self):
+        if hasattr(self, "annotated_total_liters_sold"):
+            return liters(self.annotated_total_liters_sold)
         return liters(
             self.readings.filter(is_archived=False).aggregate(total=Sum("liters_sold"))["total"]
         )
 
     @property
     def total_expected_sales(self):
+        if hasattr(self, "annotated_total_expected_sales"):
+            return money(self.annotated_total_expected_sales)
         return money(
             self.readings.filter(is_archived=False).aggregate(total=Sum("expected_sales"))["total"]
         )

@@ -43,4 +43,5 @@
       </tbody>
     </table>
   </div>
+  {% include "frontend/includes/pagination.html" with page_obj=station_categories page_param="page" pagination_query=categories_query %}
 {% endblock %}
