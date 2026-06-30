@@ -1,55 +1,15 @@
-name: fuelops
-
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    init: true
-    environment:
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      DEBUG: ${DEBUG:-False}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/db.sqlite3}
-      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
-      SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-0}
-      SECURE_HSTS_INCLUDE_SUBDOMAINS: ${SECURE_HSTS_INCLUDE_SUBDOMAINS:-False}
-      SECURE_HSTS_PRELOAD: ${SECURE_HSTS_PRELOAD:-False}
-      TRUST_PROXY_SSL_HEADER: ${TRUST_PROXY_SSL_HEADER:-False}
-      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-True}
-      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-False}
-      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-FuelOps <noreply@example.com>}
-      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
-      EMAIL_HOST: ${EMAIL_HOST:-}
-      EMAIL_PORT: ${EMAIL_PORT:-587}
-      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
-      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
-      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-True}
-      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-True}
-      COLLECT_STATIC: ${COLLECT_STATIC:-True}
-      GUNICORN_CMD_ARGS: ${GUNICORN_CMD_ARGS:---workers=3 --threads=2 --timeout=60 --access-logfile=- --error-logfile=- --no-control-socket}
-    ports:
-      - "${WEB_PORT:-8000}:8000"
+    build: .
+    container_name: fuelops
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      gunicorn fuelops.wsgi:application --bind 0.0.0.0:8000 --workers 3 --no-control-socket"
     volumes:
-      - sqlite_data:/app/data
-      - static_data:/app/staticfiles
-      - media_data:/app/media
-    tmpfs:
-      - /tmp
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/accounts/login/', timeout=5)"]
-      interval: 15s
-      timeout: 6s
-      retries: 5
-      start_period: 30s
-    stop_grace_period: 30s
-
-volumes:
-  sqlite_data:
-  static_data:
-  media_data:
+      - .:/app
+    ports:
+      - "8300:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
