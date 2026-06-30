@@ -1,39 +1,18 @@
 name: fuelops
 
 services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-fuelops}
-      POSTGRES_USER: ${POSTGRES_USER:-fuelops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-    security_opt:
-      - no-new-privileges:true
-
   web:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-fuelops}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fuelops}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/db.sqlite3}
       SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
       SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-0}
       SECURE_HSTS_INCLUDE_SUBDOMAINS: ${SECURE_HSTS_INCLUDE_SUBDOMAINS:-False}
@@ -54,6 +33,7 @@ services:
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
+      - sqlite_data:/app/data
       - static_data:/app/staticfiles
       - media_data:/app/media
     tmpfs:
@@ -70,6 +50,6 @@ services:
     stop_grace_period: 30s
 
 volumes:
-  postgres_data:
+  sqlite_data:
   static_data:
   media_data:

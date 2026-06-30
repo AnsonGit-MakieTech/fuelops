@@ -67,4 +67,4 @@ DONE - Run archive reversal, audit, team lifecycle, station switching, expanded 
 DONE - Run expense category tenancy, permission, migration, and 38-test verification checks.
 DONE - Run PDF, CSV, printable report, permission, audit, and 40-test verification checks.
 DONE - Run SQL pagination, independent table paging, grouped report query, and 42-test verification checks.
-IN PROGRESS - Create a production-ready Dockerfile and Docker Compose configuration for FuelOps and PostgreSQL.
+IN PROGRESS - Create a Dockerfile and Docker Compose configuration for FuelOps with persistent SQLite storage.

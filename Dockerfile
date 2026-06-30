@@ -28,8 +28,8 @@ RUN python -m pip install /wheels/* \
 
 COPY --chown=fuelops:fuelops . /app
 RUN chmod +x /app/docker/entrypoint.sh \
-    && mkdir -p /app/staticfiles /app/media \
-    && chown -R fuelops:fuelops /app/staticfiles /app/media
+    && mkdir -p /app/data /app/staticfiles /app/media \
+    && chown -R fuelops:fuelops /app/data /app/staticfiles /app/media
 
 USER fuelops
 
