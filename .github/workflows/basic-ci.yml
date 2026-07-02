@@ -22,4 +22,13 @@ jobs:
       - name: Test docker compose file exists
         run: |
           test -f compose.yaml
+
+      - name: Validate Compose configuration
+        run: |
+          docker compose config
+
+      - name: Build docker image
+        run: |
+          docker compose up
+      
       
