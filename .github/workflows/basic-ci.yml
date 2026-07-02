@@ -1,0 +1,25 @@
+name: Basic CI
+
+on:
+  push:
+    branches:
+      - main
+
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show files
+        run: |
+          pwd
+          ls -la
+      
+      - name: Test docker compose file exists
+        run: |
+          test -f compose.yml
+      
