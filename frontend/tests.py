@@ -1100,3 +1100,27 @@ class RegistrationAndAccessTests(TestCase):
         self.assertEqual(len(response.context["adjustments"]), 1)
         self.assertContains(response, "adjustment_page=2&amp;delivery_page=1")
         self.assertContains(response, "delivery_page=2&amp;adjustment_page=1")
+
+
+class LandingPageTests(TestCase):
+    def test_landing_page_is_public_and_links_to_registration(self):
+        response = self.client.get(reverse("landing"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Fuel station operations, under control.")
+        self.assertContains(response, reverse("register"))
+
+    def test_authenticated_user_is_sent_to_dashboard(self):
+        user = get_user_model().objects.create_user(
+            username="landing-owner",
+            password="test-password",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("landing"))
+
+        self.assertRedirects(
+            response,
+            reverse("dashboard"),
+            fetch_redirect_response=False,
+        )

@@ -104,6 +104,13 @@ from .services.registration import (
 ZERO = Decimal("0")
 
 
+@require_GET
+def landing(request):
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    return render(request, "frontend/landing.html", {"page_title": "Fuel Station Operations"})
+
+
 def paginate(request, queryset, *, page_param="page", per_page=20):
     paginator = Paginator(queryset, per_page)
     page_obj = paginator.get_page(request.GET.get(page_param))

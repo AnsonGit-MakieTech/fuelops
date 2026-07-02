@@ -1,0 +1,139 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FuelOps connects fuel sales, inventory, collections, expenses, approvals, and reports in one station operations system.">
+  <title>FuelOps | Fuel Station Operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}">
+</head>
+<body>
+  <header class="landing-header">
+    <a class="landing-brand" href="{% url 'landing' %}" aria-label="FuelOps home">
+      <img src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps">
+    </a>
+    <nav class="landing-nav" aria-label="Primary navigation">
+      <a href="#capabilities">Capabilities</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#security">Security</a>
+    </nav>
+    <div class="landing-actions">
+      <a class="button button-quiet" href="{% url 'login' %}">Sign in</a>
+      <a class="button button-primary" href="{% url 'register' %}">Start your station</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <img class="hero-image" src="{% static 'assets/fuelops-station-operations-hero.png' %}" alt="Station manager reviewing fuel operations on a tablet">
+      <div class="hero-shade"></div>
+      <div class="hero-content">
+        <p class="eyebrow">Fuel station control system</p>
+        <h1>Fuel station operations, under control.</h1>
+        <p class="hero-copy">Connect pump readings, tank inventory, collections, expenses, approvals, and profit in one accountable daily workflow.</p>
+        <div class="hero-actions">
+          <a class="button button-primary button-large" href="{% url 'register' %}">Create your station <i data-lucide="arrow-right"></i></a>
+          <a class="button button-hero-secondary button-large" href="{% url 'login' %}">Open FuelOps</a>
+        </div>
+        <ul class="hero-proof" aria-label="FuelOps product strengths">
+          <li><i data-lucide="check"></i> Built for daily station closing</li>
+          <li><i data-lucide="check"></i> Works across phone and desktop</li>
+          <li><i data-lucide="check"></i> Role-based and audit ready</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="control-strip" aria-label="Operational coverage">
+      <div><strong>Sales</strong><span>Pump readings and expected revenue</span></div>
+      <div><strong>Inventory</strong><span>Tanks, deliveries, and adjustments</span></div>
+      <div><strong>Cash</strong><span>Collections, shortages, and overages</span></div>
+      <div><strong>Reports</strong><span>Approved, exportable station results</span></div>
+    </section>
+
+    <section class="section" id="capabilities">
+      <div class="section-heading">
+        <p class="eyebrow">One operating record</p>
+        <h2>Know where the fuel went and where the money stands.</h2>
+        <p>FuelOps links the records that stations usually keep in separate notebooks and spreadsheets, then applies consistent calculations and approvals.</p>
+      </div>
+      <div class="capability-grid">
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="gauge"></i></span>
+          <h3>Daily sales reconciliation</h3>
+          <p>Turn opening and closing pump meters into liters sold, expected sales, collections, and cash variance.</p>
+        </article>
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="database"></i></span>
+          <h3>Inventory control</h3>
+          <p>Track tank balances, deliveries, low-stock levels, and controlled gain, loss, or correction requests.</p>
+        </article>
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="shield-check"></i></span>
+          <h3>Review and approvals</h3>
+          <p>Submit daily records for manager review and preserve every correction, rejection, reopen, and archive action.</p>
+        </article>
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="wallet"></i></span>
+          <h3>Expense control</h3>
+          <p>Organize station expenses by category and include approved operating costs in monthly profitability.</p>
+        </article>
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="file-chart-column"></i></span>
+          <h3>Formal reporting</h3>
+          <p>Generate daily, monthly, inventory, delivery, expense, and cash-variance reports as PDF, CSV, or print.</p>
+        </article>
+        <article class="capability-item">
+          <span class="feature-icon"><i data-lucide="building-2"></i></span>
+          <h3>Multi-station access</h3>
+          <p>Switch between authorized stations while keeping products, teams, transactions, and reports isolated.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="workflow-section" id="workflow">
+      <div class="workflow-copy">
+        <p class="eyebrow">Daily control loop</p>
+        <h2>From meter reading to approved result.</h2>
+        <p>Every shift follows a visible path. Staff encode the facts; FuelOps calculates the result; managers review before the numbers become official.</p>
+        <a class="text-link" href="{% url 'register' %}">Set up your first station <i data-lucide="arrow-right"></i></a>
+      </div>
+      <ol class="workflow-list">
+        <li><span>01</span><div><strong>Record</strong><p>Enter pump meters, collections, deliveries, and expenses.</p></div></li>
+        <li><span>02</span><div><strong>Reconcile</strong><p>Calculate liters, sales, fuel cost, and cash variance automatically.</p></div></li>
+        <li><span>03</span><div><strong>Review</strong><p>Submit operations for controlled approval or correction.</p></div></li>
+        <li><span>04</span><div><strong>Report</strong><p>Use approved records for auditable station performance reports.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="security-section" id="security">
+      <div>
+        <p class="eyebrow">Accountability by design</p>
+        <h2>Operational access without losing control.</h2>
+      </div>
+      <div class="security-points">
+        <p><i data-lucide="users"></i><span><strong>Clear responsibilities</strong>Owner, manager, staff, and accountant permissions follow station duties.</span></p>
+        <p><i data-lucide="scroll-text"></i><span><strong>Traceable changes</strong>Approvals, corrections, inventory changes, reports, and team access create audit events.</span></p>
+        <p><i data-lucide="lock-keyhole"></i><span><strong>Station isolation</strong>Queries, forms, exports, APIs, and object lookups stay scoped to authorized stations.</span></p>
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <img src="{% static 'assets/fuelops-logo.png' %}" alt="" aria-hidden="true">
+      <div><p class="eyebrow">Start with one station</p><h2>Replace fragmented records with one daily operating system.</h2></div>
+      <a class="button button-primary button-large" href="{% url 'register' %}">Create FuelOps account <i data-lucide="arrow-right"></i></a>
+    </section>
+  </main>
+
+  <footer class="landing-footer">
+    <a class="landing-brand" href="{% url 'landing' %}"><img src="{% static 'assets/fuelops-logo-with-text-rectangle.png' %}" alt="FuelOps"></a>
+    <p>Fuel station operations, inventory, reconciliation, and reporting.</p>
+    <div><a href="{% url 'login' %}">Sign in</a><a href="{% url 'register' %}">Create account</a></div>
+  </footer>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>if (window.lucide) window.lucide.createIcons({attrs: {width: 20, height: 20, strokeWidth: 2}});</script>
+</body>
+</html>

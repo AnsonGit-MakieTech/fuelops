@@ -68,3 +68,5 @@ DONE - Run expense category tenancy, permission, migration, and 38-test verifica
 DONE - Run PDF, CSV, printable report, permission, audit, and 40-test verification checks.
 DONE - Run SQL pagination, independent table paging, grouped report query, and 42-test verification checks.
 IN PROGRESS - Create a simple Dockerfile and Docker Compose configuration for FuelOps using SQLite.
+DONE - Replace the FuelOps icon and horizontal wordmark with a simplified transparent brand system across existing application surfaces.
+DONE - Create a professional public landing page for FuelOps with responsive product positioning and registration calls to action.

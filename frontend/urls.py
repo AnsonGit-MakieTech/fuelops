@@ -6,7 +6,8 @@ from .forms import FuelOpsAuthenticationForm
 
 
 urlpatterns = [
-    path("", views.dashboard, name="dashboard"),
+    path("", views.landing, name="landing"),
+    path("app/", views.dashboard, name="dashboard"),
     path(
         "accounts/login/",
         auth_views.LoginView.as_view(
