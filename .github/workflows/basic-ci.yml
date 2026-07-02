@@ -35,5 +35,9 @@ jobs:
       - name: Build docker image
         run: |
           docker compose up
+
+      - name: Shutdown docker compose
+        run: |
+          docker compose down
       
       
